@@ -1,0 +1,9 @@
+{
+  "id": "cracked_siding",
+  "description": "Cladding / wall texture elevations (Unsplash)",
+  "photos": [
+    { "file": "00_front.jpg", "slot": "front", "label": "Front wall" },
+    { "file": "01_right.jpg", "slot": "right", "label": "Right wall" },
+    { "file": "02_closeup.jpg", "slot": "problemCloseup", "label": "Wall close-up" }
+  ]
+}

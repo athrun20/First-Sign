@@ -1,0 +1,7 @@
+{
+  "id": "weak_single_photo",
+  "description": "Distant / lower-detail single exterior frame (Unsplash)",
+  "photos": [
+    { "file": "00_ambiguous.jpg", "slot": "front", "label": "Ambiguous" }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "id": "peeling_paint",
+  "description": "Labeled severe exterior paint peel on wood clapboard",
+  "groundTruth": {
+    "primaryDefect": "paint",
+    "expectedHints": ["paint", "peel", "film", "coating", "flake"],
+    "labeled": true
+  },
+  "photos": [
+    {
+      "file": "00_front.jpg",
+      "slot": "front",
+      "label": "Peeling white paint on clapboard",
+      "defect": "paint"
+    },
+    {
+      "file": "01_left.jpg",
+      "slot": "left",
+      "label": "Failing exterior film second angle",
+      "defect": "paint"
+    },
+    {
+      "file": "02_closeup.jpg",
+      "slot": "problemCloseup",
+      "label": "Paint peel close-up",
+      "defect": "paint"
+    }
+  ]
+}

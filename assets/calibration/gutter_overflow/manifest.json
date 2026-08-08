@@ -1,0 +1,9 @@
+{
+  "id": "gutter_overflow",
+  "description": "Eave / roof-edge and elevation views (Unsplash)",
+  "photos": [
+    { "file": "00_front.jpg", "slot": "front", "label": "Front of home" },
+    { "file": "01_eave.jpg", "slot": "roof", "label": "Eave line" },
+    { "file": "02_side.jpg", "slot": "left", "label": "Side elevation" }
+  ]
+}

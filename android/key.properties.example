@@ -1,0 +1,36 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Pillar AI — Play Store upload signing (template only)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# 1. Copy this file (never commit the copy):
+#      copy key.properties.example key.properties     # Windows
+#      cp key.properties.example key.properties       # macOS / Linux
+#
+# 2. Generate an upload keystore once (from the android/ folder). Prefer the
+#    helper script so paths match this template:
+#      .\scripts\create_upload_keystore.ps1           # Windows PowerShell
+#      ./scripts/create_upload_keystore.sh            # macOS / Linux
+#
+#    Or run keytool yourself (prompts for passwords — do not paste them here
+#    into git history or chat):
+#      keytool -genkeypair -v ^
+#        -keystore upload-keystore.jks ^
+#        -storetype JKS ^
+#        -keyalg RSA -keysize 2048 -validity 10000 ^
+#        -alias upload
+#
+# 3. Fill the four values below in android/key.properties (gitignored).
+#
+# 4. Build a signed release bundle:
+#      flutter build appbundle --release
+#    Output: build/app/outputs/bundle/release/app-release.aab
+#
+# storeFile is relative to android/app/ (see app/build.gradle.kts).
+# Keep upload-keystore.jks under android/ (gitignored as *.jks).
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+storePassword=YOUR_STORE_PASSWORD
+keyPassword=YOUR_KEY_PASSWORD
+keyAlias=upload
+storeFile=../upload-keystore.jks

@@ -1,0 +1,10 @@
+{
+  "id": "severe_roof_damage",
+  "description": "Roof-focused exteriors and close texture (Unsplash)",
+  "photos": [
+    { "file": "00_front.jpg", "slot": "front", "label": "Front of home" },
+    { "file": "01_roof.jpg", "slot": "roof", "label": "Roof field" },
+    { "file": "02_closeup.jpg", "slot": "problemCloseup", "label": "Roof close-up" },
+    { "file": "03_rear.jpg", "slot": "rear", "label": "Rear of home" }
+  ]
+}

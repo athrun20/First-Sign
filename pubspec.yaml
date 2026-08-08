@@ -1,0 +1,66 @@
+name: pillar_ai
+description: "FirstSign — AI-powered home exterior assessments."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_native_splash: ^2.4.6
+  google_fonts: ^8.2.0
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+  http: ^1.6.0
+  image_picker: ^1.1.2
+  path_provider: ^2.1.6
+  pdf: ^3.11.1
+  printing: ^5.13.0
+  shared_preferences: ^2.5.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+
+# Generate launcher icons:
+#   dart run flutter_launcher_icons
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/app_icon.png"
+  adaptive_icon_background: "#0D1B2A"
+  adaptive_icon_foreground: "assets/icon/app_icon.png"
+  min_sdk_android: 21
+  remove_alpha_ios: true
+
+# Native launch splash:
+#   dart run flutter_native_splash:create
+flutter_native_splash:
+  color: "#0D1B2A"
+  image: assets/icon/app_icon.png
+  android: true
+  ios: true
+  web: false
+  fullscreen: true
+  android_12:
+    color: "#0D1B2A"
+    image: assets/icon/app_icon.png
+    icon_background_color: "#0D1B2A"
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icon/
+    - assets/calibration/
+    - assets/calibration/healthy_multi_angle/
+    - assets/calibration/severe_roof_damage/
+    - assets/calibration/gutter_overflow/
+    - assets/calibration/foundation_concern/
+    - assets/calibration/peeling_paint/
+    - assets/calibration/cracked_siding/
+    - assets/calibration/weak_single_photo/
+    - assets/calibration/aging_roof_granules/

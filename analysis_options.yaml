@@ -1,0 +1,51 @@
+# This file configures the analyzer, which statically analyzes Dart code to
+# check for errors, warnings, and lints.
+#
+# The issues identified by the analyzer are surfaced in the UI of Dart-enabled
+# IDEs (https://dart.dev/tools#ides-and-editors). The analyzer can also be
+# invoked from the command line by running `flutter analyze`.
+
+# The following line activates a set of recommended lints for Flutter apps,
+# packages, and plugins designed to encourage good coding practices.
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  exclude:
+    - build/**
+    - '**/.dart_tool/**'
+    - '**/ephemeral/**'
+    - '**/.plugin_symlinks/**'
+    - '**/*.g.dart'
+    - '**/*.freezed.dart'
+    - '**/generated/**'
+    - android/**
+    - ios/**
+    - windows/**
+    - linux/**
+    - macos/**
+    - web/**
+  errors:
+    # Real debt stays visible as warnings (not infos that flood the panel).
+    unused_import: warning
+    unused_local_variable: warning
+    dead_code: warning
+    duplicate_import: warning
+    # Avoid flooding Problems with every private helper / deprecated SDK note.
+    unused_element: ignore
+    unused_field: ignore
+    deprecated_member_use: ignore
+    deprecated_member_use_from_same_package: ignore
+
+linter:
+  rules:
+    prefer_const_constructors: true
+    prefer_const_declarations: true
+    prefer_final_locals: true
+    unnecessary_parenthesis: true
+    unnecessary_lambdas: true
+    unnecessary_raw_strings: true
+    noop_primitive_operations: true
+    avoid_unnecessary_containers: true
+    sized_box_for_whitespace: true
+    use_super_parameters: true
+

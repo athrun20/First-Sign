@@ -1,0 +1,9 @@
+{
+  "id": "aging_roof_granules",
+  "description": "Roof texture and residential roof planes (Unsplash)",
+  "photos": [
+    { "file": "00_roof.jpg", "slot": "roof", "label": "Roof slope" },
+    { "file": "01_closeup.jpg", "slot": "problemCloseup", "label": "Roof texture" },
+    { "file": "02_front.jpg", "slot": "front", "label": "Front of home" }
+  ]
+}

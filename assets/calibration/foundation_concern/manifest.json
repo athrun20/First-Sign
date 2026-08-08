@@ -1,0 +1,29 @@
+{
+  "id": "foundation_concern",
+  "description": "Labeled foundation moisture, settlement crack, and concrete honeycomb",
+  "groundTruth": {
+    "primaryDefect": "foundation",
+    "expectedHints": ["foundation", "crack", "settlement", "grade", "concrete", "base", "moisture"],
+    "labeled": true
+  },
+  "photos": [
+    {
+      "file": "00_front.jpg",
+      "slot": "front",
+      "label": "Foundation base moisture and peel",
+      "defect": "foundation"
+    },
+    {
+      "file": "01_left.jpg",
+      "slot": "left",
+      "label": "Vertical settlement crack in foundation",
+      "defect": "foundation"
+    },
+    {
+      "file": "02_closeup.jpg",
+      "slot": "problemCloseup",
+      "label": "Concrete honeycomb / spall close-up",
+      "defect": "foundation"
+    }
+  ]
+}
