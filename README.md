@@ -1,4 +1,4 @@
-# FirstSign
+# First Sign
 
 AI-assisted **home exterior screening** for homeowners — guided photos, findings story, digital twin, surface-evidence detail, shareable PDF, Formspree quote email, and on-device contractor lead tools.
 
@@ -117,7 +117,7 @@ Leads are **also** saved on-device for contractor tools even if email delivery f
 ## Demo Mode
 
 On the home screen, tap **Try sample home (demo)**.  
-FirstSign paints sample elevations, runs the calibrated screening engine, saves a report, and opens the full UI (twin, surface evidence, PDF).
+First Sign paints sample elevations, runs the calibrated screening engine, saves a report, and opens the full UI (twin, surface evidence, PDF).
 
 ## Tests & quality
 

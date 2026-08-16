@@ -41,7 +41,6 @@ class ScoreComparison {
   }
 
   bool get improved => trend == ScoreTrend.improved;
-  bool get declined => trend == ScoreTrend.declined;
   bool get unchanged => trend == ScoreTrend.unchanged;
 
   /// Signed points chip: `+9`, `−4`, `0`.
@@ -64,18 +63,6 @@ class ScoreComparison {
     final unit = absDelta == 1 ? 'point' : 'points';
     if (improved) return 'Improved by $absDelta $unit';
     return 'Down $absDelta $unit';
-  }
-
-  /// Direction word for accessibility / captions.
-  String get directionWord {
-    switch (trend) {
-      case ScoreTrend.improved:
-        return 'improved';
-      case ScoreTrend.declined:
-        return 'declined';
-      case ScoreTrend.unchanged:
-        return 'unchanged';
-    }
   }
 
   Color get accentColor {
@@ -124,22 +111,6 @@ class ScoreComparison {
       fromDateLabel: previous.relativeDateLabel,
       toDateLabel: latest.relativeDateLabel,
       headline: 'Compared to last scan',
-    );
-  }
-
-  /// Viewing a past report — anchor against the most recent scan.
-  factory ScoreComparison.pastVsLatest({
-    required SavedReport past,
-    required SavedReport latest,
-  }) {
-    return ScoreComparison(
-      fromScore: past.score,
-      toScore: latest.score,
-      fromLabel: 'This report',
-      toLabel: 'Latest scan',
-      fromDateLabel: past.relativeDateLabel,
-      toDateLabel: latest.relativeDateLabel,
-      headline: 'Compared to latest scan',
     );
   }
 

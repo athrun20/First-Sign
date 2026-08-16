@@ -1,5 +1,3 @@
-import 'dart:async' show unawaited;
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -7,6 +5,9 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
+import '../legal/cost_copy.dart';
+import '../legal/privacy_copy.dart';
+import '../legal/product_copy.dart';
 import '../models/analysis_models.dart';
 import '../models/lead_models.dart';
 import '../services/branding_store.dart';
@@ -101,7 +102,7 @@ class _LeadDetailScreenState extends State<LeadDetailScreen> {
                         pw.Text(
                           safe(
                             branding.companyName.trim().isEmpty
-                                ? 'FirstSign'
+                                ? ProductCopy.displayName
                                 : branding.companyName.trim(),
                           ),
                           style: const pw.TextStyle(
@@ -110,7 +111,7 @@ class _LeadDetailScreenState extends State<LeadDetailScreen> {
                           ),
                         ),
                         pw.Text(
-                          safe('Lead report · Powered by FirstSign'),
+                          safe('Lead report · Powered by ${ProductCopy.displayName}'),
                           style: const pw.TextStyle(
                             fontSize: 10,
                             color: PdfColors.grey700,
@@ -143,8 +144,10 @@ class _LeadDetailScreenState extends State<LeadDetailScreen> {
               pw.Text(safe(report.recommendationStory)),
               pw.Text(safe(report.impactStory)),
               pw.Text(
-                safe('Est. repair range: ${report.estimatedRepairRange}'),
+                safe(CostCopy.labeled(report.estimatedRepairRange)),
               ),
+              pw.Text(safe(CostCopy.inlineNote)),
+              pw.Text(safe(CostCopy.footnote)),
               pw.Text('Photos analyzed: ${report.photoCount}'),
               pw.SizedBox(height: 16),
               pw.Text(
@@ -181,7 +184,7 @@ class _LeadDetailScreenState extends State<LeadDetailScreen> {
                         ),
                         pw.Text(
                           safe(
-                            '${issue.severity} · ${issue.location} · ${issue.cost}',
+                            '${issue.severity} · ${issue.location} · ${issue.planningCostLabel}',
                           ),
                         ),
                         pw.SizedBox(height: 4),
@@ -205,6 +208,12 @@ class _LeadDetailScreenState extends State<LeadDetailScreen> {
                 pw.Text(safe(l.homeownerNotes)),
               ]);
             }
+
+            widgets.addAll([
+              pw.SizedBox(height: 16),
+              pw.Text(safe(CostCopy.footnote)),
+              pw.Text(safe(PrivacyCopy.screeningReminder)),
+            ]);
 
             return widgets;
           },
@@ -323,9 +332,7 @@ class _LeadDetailScreenState extends State<LeadDetailScreen> {
                     Expanded(
                       child: OutlinedButton.icon(
                         onPressed: () {
-                          unawaited(
-                            Clipboard.setData(ClipboardData(text: l.phone)),
-                          );
+                          Clipboard.setData(ClipboardData(text: l.phone));
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               content: Text(
@@ -344,9 +351,7 @@ class _LeadDetailScreenState extends State<LeadDetailScreen> {
                     Expanded(
                       child: OutlinedButton.icon(
                         onPressed: () {
-                          unawaited(
-                            Clipboard.setData(ClipboardData(text: l.email)),
-                          );
+                          Clipboard.setData(ClipboardData(text: l.email));
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               content: Text(
@@ -383,6 +388,7 @@ class _LeadDetailScreenState extends State<LeadDetailScreen> {
                 ),
                 const SizedBox(height: 10),
                 DropdownButtonFormField<String>(
+                  key: ValueKey(l.status),
                   initialValue: l.status,
                   decoration: InputDecoration(
                     filled: true,
@@ -405,7 +411,7 @@ class _LeadDetailScreenState extends State<LeadDetailScreen> {
                       )
                       .toList(),
                   onChanged: (s) {
-                    if (s != null) unawaited(_setStatus(s));
+                    if (s != null) _setStatus(s);
                   },
                 ),
               ],
@@ -450,18 +456,45 @@ class _LeadDetailScreenState extends State<LeadDetailScreen> {
                 Text(
                   '${report.photoCount} photos · ${report.issues.length} findings · '
                   '${l.severitySummary}',
-                  style: GoogleFonts.inter(
-                    fontSize: 13,
-                    color: AppLux.body,
-                  ),
+                  style: GoogleFonts.inter(fontSize: 13, color: AppLux.body),
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Planning range ${report.estimatedRepairRange}',
+                  CostCopy.labeled(report.estimatedRepairRange),
                   style: GoogleFonts.inter(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
                     color: AppLux.teal,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  CostCopy.inlineNote,
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    height: 1.4,
+                    fontWeight: FontWeight.w500,
+                    color: AppLux.muted,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  CostCopy.footnote,
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    height: 1.4,
+                    fontWeight: FontWeight.w500,
+                    color: AppLux.muted,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  PrivacyCopy.screeningReminder,
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    height: 1.4,
+                    fontWeight: FontWeight.w500,
+                    color: AppLux.muted,
                   ),
                 ),
                 if (l.hasPhotos) ...[
@@ -692,17 +725,11 @@ class _IssueRow extends StatelessWidget {
                 Text(
                   '${issue.severity} · ${issue.location}'
                   '${issue.sourcePhotoLabel.isNotEmpty ? ' · From: ${issue.sourcePhotoLabel}' : ''}',
-                  style: GoogleFonts.inter(
-                    fontSize: 12,
-                    color: AppLux.body,
-                  ),
+                  style: GoogleFonts.inter(fontSize: 12, color: AppLux.body),
                 ),
                 Text(
                   issue.planningCostLabel,
-                  style: GoogleFonts.inter(
-                    fontSize: 11.5,
-                    color: AppLux.muted,
-                  ),
+                  style: GoogleFonts.inter(fontSize: 11.5, color: AppLux.muted),
                 ),
               ],
             ),

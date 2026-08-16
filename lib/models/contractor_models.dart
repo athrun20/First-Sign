@@ -216,9 +216,7 @@ class Contractor {
     return Contractor(
       id: id,
       name: name ?? this.name,
-      companyName: clearCompanyName
-          ? null
-          : (companyName ?? this.companyName),
+      companyName: clearCompanyName ? null : (companyName ?? this.companyName),
       trades: trades ?? this.trades,
       serviceAreas: serviceAreas ?? this.serviceAreas,
       phone: phone ?? this.phone,

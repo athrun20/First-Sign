@@ -1,4 +1,4 @@
-# Run FirstSign on a connected Android device with Formspree + Vision.
+# Run First Sign on a connected Android device with Formspree + Vision.
 # Requires formspree.env.json (see formspree.env.example.json and docs/).
 #
 # Phone setup:
@@ -28,7 +28,7 @@ if ($devicesOut -notmatch "android|Android") {
   exit 1
 }
 
-Write-Host "Starting FirstSign on Android with formspree.env.json ..." -ForegroundColor Green
+Write-Host "Starting First Sign on Android with formspree.env.json ..." -ForegroundColor Green
 Write-FormspreeEnvStatus -EnvFile $envFile
 
 flutter run -d android --dart-define-from-file=formspree.env.json

@@ -75,6 +75,7 @@ abstract final class AppLux {
   static const bodySm = 12.5;
   static const caption = 12.0;
   static const overline = 10.5;
+
   /// Hero condition score (Apple Health / Robinhood scale).
   static const scoreDisplay = 64.0;
 

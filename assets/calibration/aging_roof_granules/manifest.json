@@ -1,9 +1,8 @@
 {
   "id": "aging_roof_granules",
-  "description": "Roof texture and residential roof planes (Unsplash)",
+  "description": "Aging asphalt shingle field (labeled roof). 02_field.jpg is a local slope held aside — pipeline treats it as a strong roof, so it is not in photos[].",
   "photos": [
     { "file": "00_roof.jpg", "slot": "roof", "label": "Roof slope" },
-    { "file": "01_closeup.jpg", "slot": "problemCloseup", "label": "Roof texture" },
-    { "file": "02_front.jpg", "slot": "front", "label": "Front of home" }
+    { "file": "01_closeup.jpg", "slot": "problemCloseup", "label": "Roof texture" }
   ]
 }

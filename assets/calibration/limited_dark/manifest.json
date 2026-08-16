@@ -1,0 +1,36 @@
+{
+  "id": "limited_dark",
+  "title": "Limited visibility / dark ambiguous frame",
+  "photos": [
+    {
+      "file": "00_dark.jpg",
+      "slot": "front",
+      "label": "Night street view — low detail, underexposed facade"
+    }
+  ],
+  "expected": {
+    "maxFindings": 10,
+    "minFindings": 1,
+    "allowedCategories": [
+      "paint",
+      "siding",
+      "roof",
+      "gutter",
+      "drainage",
+      "foundation",
+      "window",
+      "vegetation",
+      "general",
+      "rust",
+      "chimney",
+      "wiring"
+    ],
+    "forbiddenCategories": [],
+    "scoreMin": 40,
+    "scoreMax": 88,
+    "maxSeverity": "High",
+    "needsCloserPhotoOk": true,
+    "requireNeedsCloserPhoto": true
+  },
+  "notes": "Field night photos: 00_dark.jpg is the street-wide underexposed frame (fixture). 01_porch.jpg and 02_entry.jpg are closer night shots kept in-folder, not in photos[] so the single-frame limited-visibility path still runs."
+}

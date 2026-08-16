@@ -35,10 +35,7 @@ abstract final class ContractorMatching {
     String propertyAddress = '',
     int topFindingLimit = defaultTopFindingLimit,
   }) {
-    final needed = tradesFromReport(
-      report,
-      topFindingLimit: topFindingLimit,
-    );
+    final needed = tradesFromReport(report, topFindingLimit: topFindingLimit);
     // No findings → nothing to route (do not blast the network).
     if (needed.isEmpty) return const [];
 
@@ -106,8 +103,8 @@ abstract final class ContractorMatching {
 
   /// Map one finding to a primary trade tag, or null if unknown.
   static String? tradeFromFinding(AnalysisIssue issue) {
-    final key =
-        '${issue.title} ${issue.location} ${issue.insight}'.toLowerCase();
+    final key = '${issue.title} ${issue.location} ${issue.insight}'
+        .toLowerCase();
     if (key.contains('roof') ||
         key.contains('shingle') ||
         key.contains('ridge') ||

@@ -1,0 +1,39 @@
+{
+  "id": "mixed_ambiguous",
+  "title": "Mixed ambiguous signals",
+  "photos": [
+    {
+      "file": "00_ambiguous.jpg",
+      "slot": "problemCloseup",
+      "label": "Ambiguous close frame"
+    },
+    {
+      "file": "01_front.jpg",
+      "slot": "front",
+      "label": "Front elevation context"
+    }
+  ],
+  "expected": {
+    "maxFindings": 14,
+    "allowedCategories": [
+      "paint",
+      "siding",
+      "roof",
+      "gutter",
+      "drainage",
+      "foundation",
+      "window",
+      "vegetation",
+      "general",
+      "rust",
+      "chimney",
+      "wiring"
+    ],
+    "forbiddenCategories": [],
+    "scoreMin": 35,
+    "scoreMax": 100,
+    "maxSeverity": "High",
+    "needsCloserPhotoOk": true
+  },
+  "notes": "Ambiguous mix — wide bands only. Drop real mixed-condition photos (glare, partial angles) when available."
+}

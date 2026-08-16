@@ -227,10 +227,7 @@ void main() {
         ExteriorAnalysisService.filterExteriorVisionLabels(kitchen),
         isEmpty,
       );
-      expect(
-        ExteriorAnalysisService.expandVisionLabels(kitchen),
-        isEmpty,
-      );
+      expect(ExteriorAnalysisService.expandVisionLabels(kitchen), isEmpty);
       expect(
         ExteriorAnalysisService.hasExteriorEvidence(
           ExteriorAnalysisService.expandVisionLabels(kitchen),
@@ -250,10 +247,7 @@ void main() {
         }),
         isFalse,
       );
-      expect(
-        ExteriorAnalysisService.isExteriorRelevantLabel('tile'),
-        isFalse,
-      );
+      expect(ExteriorAnalysisService.isExteriorRelevantLabel('tile'), isFalse);
       expect(
         ExteriorAnalysisService.isExteriorRelevantLabel('tile roof'),
         isTrue,
@@ -382,14 +376,8 @@ void main() {
         'AI exterior screening · Google Cloud Vision (single photo) + local features';
 
     test('single-photo local vs vision copy differs', () {
-      final local = report(
-        source: localSource,
-        photoCount: 1,
-      );
-      final vision = report(
-        source: visionSingleSource,
-        photoCount: 1,
-      );
+      final local = report(source: localSource, photoCount: 1);
+      final vision = report(source: visionSingleSource, photoCount: 1);
 
       expect(local.usedCloudVision, isFalse);
       expect(vision.usedCloudVision, isTrue);
@@ -439,7 +427,15 @@ void main() {
         insight: 'Roof damage supported',
       );
       expect(strong.planningCostLabel, contains(r'$1,800'));
-      expect(strong.storyWhat.toLowerCase(), contains('confidence 88'));
+      expect(
+        strong.storyWhat.toLowerCase(),
+        contains('photo cues support'),
+      );
+      expect(
+        strong.storyWhat.toLowerCase().contains('confidence 88'),
+        isFalse,
+        reason: 'findings card storyWhat stays short — no raw confidence echo',
+      );
     });
 
     test('stories name actual findings rather than only generic counts', () {

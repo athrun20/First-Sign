@@ -19,7 +19,7 @@
         android:required="false" />
 
     <application
-        android:label="FirstSign"
+        android:label="First Sign"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

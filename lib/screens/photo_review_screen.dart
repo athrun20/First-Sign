@@ -9,13 +9,21 @@ import '../services/exterior_analysis_service.dart';
 import '../services/report_store.dart';
 import '../services/storage_exception.dart';
 import '../theme/app_lux.dart';
+import '../widgets/closer_photo_tip.dart';
 import '../widgets/photo_thumb.dart';
 import 'analysis_report_screen.dart';
 
 class PhotoReviewScreen extends StatefulWidget {
   final List<CapturePhoto> photos;
 
-  const PhotoReviewScreen({super.key, required this.photos});
+  /// Soft pre-analysis hint when a dark / low-detail frame was accepted.
+  final bool lowDetailHint;
+
+  const PhotoReviewScreen({
+    super.key,
+    required this.photos,
+    this.lowDetailHint = false,
+  });
 
   @override
   State<PhotoReviewScreen> createState() => _PhotoReviewScreenState();
@@ -115,9 +123,7 @@ class _PhotoReviewScreenState extends State<PhotoReviewScreen> {
             color: quick ? AppLux.charcoal : null,
           ),
         ),
-        iconTheme: quick
-            ? const IconThemeData(color: AppLux.charcoal)
-            : null,
+        iconTheme: quick ? const IconThemeData(color: AppLux.charcoal) : null,
       ),
       body: Stack(
         children: [
@@ -139,6 +145,11 @@ class _PhotoReviewScreenState extends State<PhotoReviewScreen> {
                     ),
                   ),
                 ),
+                if (widget.lowDetailHint)
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(20, 10, 20, 4),
+                    child: CloserPhotoCaptureHint(),
+                  ),
                 Expanded(
                   child: GridView.builder(
                     padding: const EdgeInsets.all(16),
@@ -345,6 +356,10 @@ class _PhotoReviewScreenState extends State<PhotoReviewScreen> {
                   ],
                 ),
               ),
+              if (widget.lowDetailHint) ...[
+                const SizedBox(height: 12),
+                const CloserPhotoCaptureHint(),
+              ],
               const SizedBox(height: 12),
               TextButton(
                 onPressed: _analyzing
@@ -363,9 +378,7 @@ class _PhotoReviewScreenState extends State<PhotoReviewScreen> {
           padding: EdgeInsets.fromLTRB(22, 12, 22, 12 + bottom),
           decoration: const BoxDecoration(
             color: AppLux.surface,
-            border: Border(
-              top: BorderSide(color: AppLux.border, width: 0.75),
-            ),
+            border: Border(top: BorderSide(color: AppLux.border, width: 0.75)),
           ),
           child: SizedBox(
             width: double.infinity,
@@ -373,9 +386,7 @@ class _PhotoReviewScreenState extends State<PhotoReviewScreen> {
               onPressed: _analyzing ? null : _runAnalysis,
               style: FilledButton.styleFrom(
                 backgroundColor: AppLux.teal,
-                disabledBackgroundColor: AppLux.teal.withValues(
-                  alpha: 0.45,
-                ),
+                disabledBackgroundColor: AppLux.teal.withValues(alpha: 0.45),
                 foregroundColor: Colors.white,
                 minimumSize: const Size(double.infinity, 54),
                 shape: RoundedRectangleBorder(
@@ -448,7 +459,7 @@ class _AnalysisLoadingOverlayState extends State<_AnalysisLoadingOverlay>
             ? 'Sending to Google Cloud Vision'
             : 'Running on-device image analysis',
         'Mapping defects & severity',
-        'Scoring confidence & repair costs',
+        'Scoring confidence & planning range',
       ];
     }
 

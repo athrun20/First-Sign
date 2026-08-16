@@ -4,14 +4,15 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../legal/cost_copy.dart';
 import '../legal/privacy_copy.dart';
 import '../models/analysis_models.dart';
 import '../models/saved_report.dart';
 import '../models/score_comparison.dart';
+import '../models/twin_zone.dart';
 import '../services/report_store.dart';
 import '../theme/app_lux.dart';
 import '../widgets/condition_score_dial.dart';
-import '../widgets/digital_twin_house.dart';
 
 /// Sort / filter chips for the report list.
 enum _ReportFilter { all, thisWeek, strong, needsAttention }
@@ -214,10 +215,7 @@ class _ReportHistoryScreenState extends State<ReportHistoryScreen> {
     final latest = all.isEmpty ? null : all.first;
     final previous = all.length >= 2 ? all[1] : null;
     final comparison = latest != null && previous != null
-        ? ScoreComparison.latestVsPrevious(
-            latest: latest,
-            previous: previous,
-          )
+        ? ScoreComparison.latestVsPrevious(latest: latest, previous: previous)
         : null;
 
     return Scaffold(
@@ -349,82 +347,91 @@ class _ReportHistoryScreenState extends State<ReportHistoryScreen> {
                                 const SizedBox(height: 12),
                                 _FilterChips(
                                   value: _filter,
-                                  onChanged: (f) =>
-                                      setState(() => _filter = f),
+                                  onChanged: (f) => setState(() => _filter = f),
                                 ),
                                 const SizedBox(height: 16),
-                            if (useSections) ...[
-                              AppLux.sectionHeader(
-                                'Recent',
-                                trailing: '${recent.length}',
-                              ),
-                              const SizedBox(height: 12),
-                              for (var i = 0; i < recent.length; i++) ...[
-                                _ReportCard(
-                                  report: recent[i],
-                                  absoluteDate: _absoluteDate(
-                                    recent[i].createdAt,
+                                if (useSections) ...[
+                                  AppLux.sectionHeader(
+                                    'Recent',
+                                    trailing: '${recent.length}',
                                   ),
-                                  scoreColor: _scoreColor(recent[i].score),
-                                  emphasize: i == 0,
-                                  comparison: _comparisonFor(recent[i], all),
-                                  onOpen: () => _open(recent[i]),
-                                  onDelete: () => _delete(recent[i]),
-                                ),
-                                const SizedBox(height: 12),
-                              ],
-                              const SizedBox(height: 8),
-                              AppLux.sectionHeader(
-                                'Earlier',
-                                trailing: '${older.length}',
-                              ),
-                              const SizedBox(height: 12),
-                              for (final r in older) ...[
-                                _ReportCard(
-                                  report: r,
-                                  absoluteDate: _absoluteDate(r.createdAt),
-                                  scoreColor: _scoreColor(r.score),
-                                  emphasize: false,
-                                  comparison: _comparisonFor(r, all),
-                                  onOpen: () => _open(r),
-                                  onDelete: () => _delete(r),
-                                ),
-                                const SizedBox(height: 12),
-                              ],
-                            ] else ...[
-                              if (_filter != _ReportFilter.all ||
-                                  _searchCtrl.text.trim().isNotEmpty)
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 12),
-                                  child: Text(
-                                    '${filtered.length} match'
-                                    '${filtered.length == 1 ? '' : 'es'}',
-                                    style: GoogleFonts.inter(
-                                      fontSize: 12.5,
-                                      fontWeight: FontWeight.w600,
-                                      color: AppLux.muted,
-                                      letterSpacing: 0.1,
+                                  const SizedBox(height: 12),
+                                  for (var i = 0; i < recent.length; i++) ...[
+                                    _ReportCard(
+                                      report: recent[i],
+                                      absoluteDate: _absoluteDate(
+                                        recent[i].createdAt,
+                                      ),
+                                      scoreColor: _scoreColor(recent[i].score),
+                                      emphasize: i == 0,
+                                      comparison: _comparisonFor(
+                                        recent[i],
+                                        all,
+                                      ),
+                                      onOpen: () => _open(recent[i]),
+                                      onDelete: () => _delete(recent[i]),
                                     ),
+                                    const SizedBox(height: 12),
+                                  ],
+                                  const SizedBox(height: 8),
+                                  AppLux.sectionHeader(
+                                    'Earlier',
+                                    trailing: '${older.length}',
                                   ),
-                                ),
-                              for (var i = 0; i < filtered.length; i++) ...[
-                                _ReportCard(
-                                  report: filtered[i],
-                                  absoluteDate: _absoluteDate(
-                                    filtered[i].createdAt,
-                                  ),
-                                  scoreColor: _scoreColor(filtered[i].score),
-                                  emphasize:
-                                      i == 0 &&
-                                      _filter == _ReportFilter.all &&
-                                      _searchCtrl.text.trim().isEmpty,
-                                  comparison: _comparisonFor(filtered[i], all),
-                                  onOpen: () => _open(filtered[i]),
-                                  onDelete: () => _delete(filtered[i]),
-                                ),
-                                const SizedBox(height: 12),
-                              ],
-                            ],
+                                  const SizedBox(height: 12),
+                                  for (final r in older) ...[
+                                    _ReportCard(
+                                      report: r,
+                                      absoluteDate: _absoluteDate(r.createdAt),
+                                      scoreColor: _scoreColor(r.score),
+                                      emphasize: false,
+                                      comparison: _comparisonFor(r, all),
+                                      onOpen: () => _open(r),
+                                      onDelete: () => _delete(r),
+                                    ),
+                                    const SizedBox(height: 12),
+                                  ],
+                                ] else ...[
+                                  if (_filter != _ReportFilter.all ||
+                                      _searchCtrl.text.trim().isNotEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.only(
+                                        bottom: 12,
+                                      ),
+                                      child: Text(
+                                        '${filtered.length} match'
+                                        '${filtered.length == 1 ? '' : 'es'}',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 12.5,
+                                          fontWeight: FontWeight.w600,
+                                          color: AppLux.muted,
+                                          letterSpacing: 0.1,
+                                        ),
+                                      ),
+                                    ),
+                                  for (var i = 0; i < filtered.length; i++) ...[
+                                    _ReportCard(
+                                      report: filtered[i],
+                                      absoluteDate: _absoluteDate(
+                                        filtered[i].createdAt,
+                                      ),
+                                      scoreColor: _scoreColor(
+                                        filtered[i].score,
+                                      ),
+                                      emphasize:
+                                          i == 0 &&
+                                          _filter == _ReportFilter.all &&
+                                          _searchCtrl.text.trim().isEmpty,
+                                      comparison: _comparisonFor(
+                                        filtered[i],
+                                        all,
+                                      ),
+                                      onOpen: () => _open(filtered[i]),
+                                      onDelete: () => _delete(filtered[i]),
+                                    ),
+                                    const SizedBox(height: 12),
+                                  ],
+                                ],
                               ],
                             ),
                     ),
@@ -653,10 +660,7 @@ class _SystemStatusRow extends StatelessWidget {
             shape: BoxShape.circle,
             color: color,
             boxShadow: [
-              BoxShadow(
-                color: color.withValues(alpha: 0.35),
-                blurRadius: 4,
-              ),
+              BoxShadow(color: color.withValues(alpha: 0.35), blurRadius: 4),
             ],
           ),
         ),
@@ -821,11 +825,7 @@ class _HomeHealthTimeline extends StatelessWidget {
                       ),
                     ),
                     if (i < events.length - 1)
-                      Container(
-                        width: 1.5,
-                        height: 18,
-                        color: AppLux.border,
-                      ),
+                      Container(width: 1.5, height: 18, color: AppLux.border),
                   ],
                 ),
                 const SizedBox(width: 10),
@@ -1087,6 +1087,7 @@ class _ReportCard extends StatelessWidget {
         ? 'Exterior assessment'
         : report.report.conditionLabel.trim();
     final range = report.report.estimatedRepairRange.trim();
+    final rangeChip = range.isEmpty ? '' : CostCopy.labeled(range);
 
     return Material(
       color: Colors.transparent,
@@ -1332,12 +1333,12 @@ class _ReportCard extends StatelessWidget {
                       label:
                           '${report.findingsCount} finding${report.findingsCount == 1 ? '' : 's'}',
                     ),
-                    if (range.isNotEmpty) ...[
+                    if (rangeChip.isNotEmpty) ...[
                       const SizedBox(width: 8),
                       Flexible(
                         child: _MetaChip(
                           icon: Icons.payments_outlined,
-                          label: range,
+                          label: rangeChip,
                           teal: true,
                         ),
                       ),
@@ -1470,7 +1471,7 @@ class _EmptyState extends StatelessWidget {
             title: 'No reports yet',
             body:
                 'Run a Full Assessment (6 guided photos) or a Quick Scan (1 photo). '
-                'FirstSign saves each screening here so you can reopen it anytime.',
+                'First Sign saves each screening here so you can reopen it anytime.',
             action: SizedBox(
               width: double.infinity,
               child: FilledButton(
@@ -1591,7 +1592,7 @@ class _NoMatchState extends StatelessWidget {
         icon: Icons.search_off_rounded,
         title: 'No matching reports',
         body:
-            'Nothing matches this search or filter. Clear filters to see your full FirstSign history.',
+            'Nothing matches this search or filter. Clear filters to see your full First Sign history.',
         action: OutlinedButton(
           onPressed: onClear,
           style: AppLux.secondaryButton(minHeight: 46),

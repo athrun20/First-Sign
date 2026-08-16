@@ -1,5 +1,5 @@
 name: pillar_ai
-description: "FirstSign — AI-powered home exterior assessments."
+description: "First Sign — AI property companion. AI-powered home exterior assessments."
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -31,30 +31,43 @@ dev_dependencies:
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/icon/app_icon.png"
-  adaptive_icon_background: "#0D1B2A"
-  adaptive_icon_foreground: "assets/icon/app_icon.png"
+  image_path: "assets/branding/firstsign_logo.png"
+  adaptive_icon_background: "#0B1B2B"
+  adaptive_icon_foreground: "assets/branding/firstsign_logo.png"
   min_sdk_android: 21
   remove_alpha_ios: true
+  web:
+    generate: true
+    image_path: "assets/branding/firstsign_logo.png"
+    background_color: "#0B1B2B"
+    theme_color: "#0B1B2B"
+  windows:
+    generate: true
+    image_path: "assets/branding/firstsign_logo.png"
+    icon_size: 256
+  macos:
+    generate: true
+    image_path: "assets/branding/firstsign_logo.png"
 
 # Native launch splash:
 #   dart run flutter_native_splash:create
 flutter_native_splash:
-  color: "#0D1B2A"
-  image: assets/icon/app_icon.png
+  color: "#0B1B2B"
+  image: assets/branding/firstsign_logo.png
   android: true
   ios: true
   web: false
   fullscreen: true
   android_12:
-    color: "#0D1B2A"
-    image: assets/icon/app_icon.png
-    icon_background_color: "#0D1B2A"
+    color: "#0B1B2B"
+    image: assets/branding/firstsign_logo.png
+    icon_background_color: "#0B1B2B"
 
 flutter:
   uses-material-design: true
   assets:
     - assets/icon/
+    - assets/branding/
     - assets/calibration/
     - assets/calibration/healthy_multi_angle/
     - assets/calibration/severe_roof_damage/
@@ -64,3 +77,9 @@ flutter:
     - assets/calibration/cracked_siding/
     - assets/calibration/weak_single_photo/
     - assets/calibration/aging_roof_granules/
+    # Field fixture pack (A1) — see assets/calibration/README.md
+    - assets/calibration/healthy_multi/
+    - assets/calibration/paint_clear/
+    - assets/calibration/drainage_grade/
+    - assets/calibration/limited_dark/
+    - assets/calibration/mixed_ambiguous/

@@ -11,8 +11,23 @@ import '../services/capture_draft_store.dart';
 import '../services/photo_quality_service.dart';
 import '../services/storage_exception.dart';
 import '../theme/app_lux.dart';
+import '../widgets/closer_photo_tip.dart';
 import '../widgets/smart_capture_assistant.dart';
 import 'photo_review_screen.dart';
+
+/// Quick Scan tokens — aliases of [AppLux].
+abstract final class _QsLux {
+  static const bg = AppLux.bg;
+  static const surface = AppLux.surface;
+  static const border = AppLux.border;
+  static const charcoal = AppLux.charcoal;
+  static const body = AppLux.body;
+  static const muted = AppLux.muted;
+  static const teal = AppLux.teal;
+  static const tealMist = AppLux.tealMist;
+  static const gold = AppLux.gold;
+  static const goldSoft = AppLux.goldSoft;
+}
 
 /// Guided multi-photo capture: checklist, tips, progress, quality gates.
 ///
@@ -156,8 +171,29 @@ class _GuidedCaptureScreenState extends State<GuidedCaptureScreen> {
     _flashTimer?.cancel();
   }
 
+  bool get _hasLowDetailAccepted {
+    for (final slot in _slots) {
+      if (slot.photo != null && (slot.quality?.isDarkOrLowDetail ?? false)) {
+        return true;
+      }
+    }
+    for (final extra in _extraCloseups) {
+      if (extra.quality?.isDarkOrLowDetail ?? false) return true;
+    }
+    return false;
+  }
+
   void _applySeedPhotos() {
     if (widget.seedPhotos.isEmpty) return;
+    if (_isQuickScan && _slots.isNotEmpty && _slots.first.photo == null) {
+      final first = widget.seedPhotos.first;
+      _slots[0] = CaptureSlot(
+        def: _slots[0].def,
+        photo: first.file,
+        quality: const PhotoQualityResult(ok: true),
+      );
+      return;
+    }
     for (final photo in widget.seedPhotos) {
       final slotId = photo.slotId;
       if (slotId == null) continue;
@@ -173,13 +209,12 @@ class _GuidedCaptureScreenState extends State<GuidedCaptureScreen> {
           def: _slots[i].def,
           photo: photo.file,
           quality: const PhotoQualityResult(ok: true),
-          acceptedWithWarnings: false,
         );
       } else if (slotId == CaptureShotId.problemCloseup) {
         _extraCloseups.add(ExtraCloseup(photo: photo.file));
       }
     }
-    // Seed photos without slot â†’ extras.
+    // Seed photos without slot → extras.
     for (final photo in widget.seedPhotos) {
       if (photo.slotId != null) continue;
       _extraCloseups.add(ExtraCloseup(photo: photo.file));
@@ -512,7 +547,7 @@ class _GuidedCaptureScreenState extends State<GuidedCaptureScreen> {
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('â†’  '),
+                          const Text('→  '),
                           Expanded(
                             child: Text(
                               t,
@@ -613,7 +648,7 @@ class _GuidedCaptureScreenState extends State<GuidedCaptureScreen> {
           cursor++;
           if (!mounted) return;
         }
-        // Remaining â†’ extra close-ups
+        // Remaining → extra close-ups
         while (cursor < files.length) {
           await _addExtraCloseup(files[cursor]);
           cursor++;
@@ -674,12 +709,12 @@ class _GuidedCaptureScreenState extends State<GuidedCaptureScreen> {
         filled: false,
       );
     });
-    unawaited(_persistDraft());
+    _persistDraft();
   }
 
   void _removeExtra(int index) {
     setState(() => _extraCloseups.removeAt(index));
-    unawaited(_persistDraft());
+    _persistDraft();
   }
 
   Future<void> _persistDraft() async {
@@ -711,7 +746,7 @@ class _GuidedCaptureScreenState extends State<GuidedCaptureScreen> {
         _toast('Add at least one photo before re-running analysis.');
         return;
       }
-      unawaited(CaptureDraftStore.instance.clear());
+      CaptureDraftStore.instance.clear();
       Navigator.of(context).pop<List<CapturePhoto>>(_allCapturePhotos);
       return;
     }
@@ -734,42 +769,47 @@ class _GuidedCaptureScreenState extends State<GuidedCaptureScreen> {
       return;
     }
     // Checklist complete — clear in-progress draft before review.
-    unawaited(CaptureDraftStore.instance.clear());
+    CaptureDraftStore.instance.clear();
     final photos = _allCapturePhotos;
     if (_isQuickScan) {
       // Soft fade into review — keeps Quick Scan feeling intentional.
-      unawaited(
-        Navigator.of(context).push(
-          PageRouteBuilder<void>(
-            transitionDuration: const Duration(milliseconds: 420),
-            reverseTransitionDuration: const Duration(milliseconds: 280),
-            pageBuilder: (context, animation, secondaryAnimation) {
-              return PhotoReviewScreen(photos: photos);
-            },
-            transitionsBuilder: (context, animation, secondaryAnimation, child) {
-              final curved = CurvedAnimation(
-                parent: animation,
-                curve: Curves.easeOutCubic,
-              );
-              return FadeTransition(
-                opacity: curved,
-                child: SlideTransition(
-                  position: Tween<Offset>(
-                    begin: const Offset(0, 0.03),
-                    end: Offset.zero,
-                  ).animate(curved),
-                  child: child,
-                ),
-              );
-            },
-            settings: RouteSettings(name: '/photo-review', arguments: photos),
-          ),
+      Navigator.of(context).push(
+        PageRouteBuilder<void>(
+          transitionDuration: const Duration(milliseconds: 420),
+          reverseTransitionDuration: const Duration(milliseconds: 280),
+          pageBuilder: (context, animation, secondaryAnimation) {
+            return PhotoReviewScreen(
+              photos: photos,
+              lowDetailHint: _hasLowDetailAccepted,
+            );
+          },
+          transitionsBuilder: (context, animation, secondaryAnimation, child) {
+            final curved = CurvedAnimation(
+              parent: animation,
+              curve: Curves.easeOutCubic,
+            );
+            return FadeTransition(
+              opacity: curved,
+              child: SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(0, 0.03),
+                  end: Offset.zero,
+                ).animate(curved),
+                child: child,
+              ),
+            );
+          },
+          settings: RouteSettings(name: '/photo-review', arguments: photos),
         ),
       );
       return;
     }
-    unawaited(
-      Navigator.of(context).pushNamed('/photo-review', arguments: photos),
+    Navigator.of(context).pushNamed(
+      '/photo-review',
+      arguments: {
+        'photos': photos,
+        'lowDetailHint': _hasLowDetailAccepted,
+      },
     );
   }
 
@@ -889,7 +929,7 @@ class _GuidedCaptureScreenState extends State<GuidedCaptureScreen> {
                   ),
                   onTap: () {
                     Navigator.pop(ctx);
-                    unawaited(_takeWithCamera(index));
+                    _takeWithCamera(index);
                   },
                 ),
                 ListTile(
@@ -905,7 +945,7 @@ class _GuidedCaptureScreenState extends State<GuidedCaptureScreen> {
                   ),
                   onTap: () {
                     Navigator.pop(ctx);
-                    unawaited(_pickGalleryForSlot(index));
+                    _pickGalleryForSlot(index);
                   },
                 ),
                 if (slot.isFilled)
@@ -943,7 +983,7 @@ class _GuidedCaptureScreenState extends State<GuidedCaptureScreen> {
     return Scaffold(
       backgroundColor: AppLux.bg,
       appBar: AppBar(
-        backgroundColor: _isQuickScan ? AppLux.bg : null,
+        backgroundColor: _isQuickScan ? _QsLux.bg : null,
         surfaceTintColor: Colors.transparent,
         elevation: _isQuickScan ? 0 : null,
         title: Text(
@@ -956,23 +996,21 @@ class _GuidedCaptureScreenState extends State<GuidedCaptureScreen> {
             fontWeight: FontWeight.w700,
             fontSize: _isQuickScan ? 17 : null,
             letterSpacing: _isQuickScan ? -0.2 : null,
-            color: _isQuickScan ? AppLux.charcoal : null,
+            color: _isQuickScan ? _QsLux.charcoal : null,
           ),
         ),
         iconTheme: _isQuickScan
-            ? const IconThemeData(color: AppLux.charcoal)
+            ? const IconThemeData(color: _QsLux.charcoal)
             : null,
         actions: [
           if (!widget.retakeMode && !_isQuickScan)
-            TextButton.icon(
+            IconButton(
+              tooltip: 'Multi-select from gallery',
               onPressed: _busy ? null : _pickMultiFromGallery,
-              icon: const Icon(Icons.photo_library_outlined, size: 18),
-              label: Text(
-                'Multi-select',
-                style: GoogleFonts.inter(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 13,
-                ),
+              icon: Icon(
+                Icons.photo_library_outlined,
+                size: 20,
+                color: AppLux.charcoalMid.withValues(alpha: 0.85),
               ),
             ),
         ],
@@ -1036,7 +1074,7 @@ class _GuidedCaptureScreenState extends State<GuidedCaptureScreen> {
                 _buildQuickScanHeader()
               else
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
+                  padding: const EdgeInsets.fromLTRB(20, 6, 20, 0),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -1048,11 +1086,12 @@ class _GuidedCaptureScreenState extends State<GuidedCaptureScreen> {
                                   ? (_retakeFocusReady
                                         ? 'New ${_focusSlot.def.shortLabel} ready — re-run analysis'
                                         : 'Take a new ${_focusSlot.def.shortLabel} photo')
-                                  : '$_filledRequired of $_requiredTotal shots ready',
+                                  : '$_filledRequired of $_requiredTotal ready',
                               style: GoogleFonts.inter(
-                                fontSize: 15,
+                                fontSize: 15.5,
                                 fontWeight: FontWeight.w700,
                                 color: AppLux.charcoal,
+                                letterSpacing: -0.25,
                               ),
                             ),
                           ),
@@ -1060,37 +1099,39 @@ class _GuidedCaptureScreenState extends State<GuidedCaptureScreen> {
                             Text(
                               '${(_progress * 100).round()}%',
                               style: GoogleFonts.inter(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
-                                color: AppLux.teal,
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w600,
+                                color: AppLux.muted,
+                                letterSpacing: -0.1,
                               ),
                             ),
                         ],
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 10),
                       ClipRRect(
                         borderRadius: BorderRadius.circular(99),
                         child: LinearProgressIndicator(
                           value: _progress,
-                          minHeight: 8,
-                          backgroundColor: const Color(0xFFE2E8F0),
+                          minHeight: 5,
+                          backgroundColor: AppLux.borderSoft,
                           color: AppLux.teal,
                         ),
                       ),
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 8),
                       Text(
-                        'All angles help the AI spot roof, siding, gutters & foundation issues.',
+                        'Roof, walls, gutters & foundation — multi-angle screening.',
                         style: GoogleFonts.inter(
-                          fontSize: 12.5,
-                          color: AppLux.body,
+                          fontSize: 12,
+                          color: AppLux.muted,
                           height: 1.35,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
                     ],
                   ),
                 ),
 
-              // Smart Capture Assistant + checklist
+              // Capture coach + checklist
               Expanded(
                 child: ListView(
                   padding: EdgeInsets.fromLTRB(
@@ -1100,240 +1141,281 @@ class _GuidedCaptureScreenState extends State<GuidedCaptureScreen> {
                     _isQuickScan ? 16 : 12,
                   ),
                   children: [
-                    SmartCaptureAssistant(
-                      shot: focus.def,
-                      shotNumber: _focusIndex + 1,
-                      totalShots: _slots.length,
-                      filled: focus.isReady,
-                      quality: focus.quality,
-                      acceptedWithWarnings: focus.acceptedWithWarnings,
-                      flashFeedback: _flashFeedback,
-                      sessionSuggestion: _isQuickScan
-                          ? (_canContinue
-                                ? 'Photo looks ready. Tag the area if you like, then continue to screening.'
-                                : 'Take or choose one clear photo — full elevation or a focused close-up.')
-                          : _sessionSuggestion,
-                      onCamera: _busy
-                          ? null
-                          : () => _takeWithCamera(_focusIndex),
-                      onGallery: _busy
-                          ? null
-                          : () => _pickGalleryForSlot(_focusIndex),
+                    Align(
+                      alignment: Alignment.topCenter,
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 520),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            SmartCaptureAssistant(
+                              shot: focus.def,
+                              shotNumber: _focusIndex + 1,
+                              totalShots: _slots.length,
+                              filled: focus.isReady,
+                              quality: focus.quality,
+                              acceptedWithWarnings: focus.acceptedWithWarnings,
+                              flashFeedback: _flashFeedback,
+                              sessionSuggestion: _isQuickScan
+                                  ? (_canContinue
+                                        ? 'Photo looks ready. Tag the area if you like, then continue to screening.'
+                                        : 'Take or choose one clear photo — full elevation or a focused close-up.')
+                                  : _sessionSuggestion,
+                              onCamera: _busy
+                                  ? null
+                                  : () => _takeWithCamera(_focusIndex),
+                              onGallery: _busy
+                                  ? null
+                                  : () => _pickGalleryForSlot(_focusIndex),
+                            ),
+                            if (_hasLowDetailAccepted) ...[
+                              const SizedBox(height: 14),
+                              const CloserPhotoCaptureHint(),
+                            ],
+                            if (_isQuickScan) ...[
+                              const SizedBox(height: 28),
+                              _buildQuickScanAreaCard(),
+                            ] else ...[
+                              const SizedBox(height: 22),
+                              Text(
+                                'CHECKLIST',
+                                style: GoogleFonts.inter(
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppLux.muted,
+                                  letterSpacing: 1.0,
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              for (var i = 0; i < _slots.length; i++)
+                                _SlotTile(
+                                  index: i,
+                                  slot: _slots[i],
+                                  focused: i == _focusIndex,
+                                  onTap: () => _showShotActions(i),
+                                ),
+                              const SizedBox(height: 18),
+                              Row(
+                                children: [
+                                  Text(
+                                    'Extra close-ups',
+                                    style: GoogleFonts.inter(
+                                      fontSize: 13.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppLux.charcoal,
+                                      letterSpacing: -0.15,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Optional',
+                                    style: GoogleFonts.inter(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w500,
+                                      color: AppLux.muted,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Add a problem area if you already see one.',
+                                style: GoogleFonts.inter(
+                                  fontSize: 12,
+                                  color: AppLux.muted,
+                                  height: 1.35,
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              if (_extraCloseups.isEmpty)
+                                Text(
+                                  'None yet',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 12.5,
+                                    color: AppLux.muted.withValues(alpha: 0.85),
+                                  ),
+                                )
+                              else
+                                SizedBox(
+                                  height: 88,
+                                  child: ListView.separated(
+                                    scrollDirection: Axis.horizontal,
+                                    itemCount: _extraCloseups.length,
+                                    separatorBuilder: (_, _) =>
+                                        const SizedBox(width: 8),
+                                    itemBuilder: (context, i) {
+                                      return _ExtraThumb(
+                                        photo: _extraCloseups[i].photo,
+                                        onRemove: () => _removeExtra(i),
+                                      );
+                                    },
+                                  ),
+                                ),
+                              const SizedBox(height: 10),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: OutlinedButton.icon(
+                                      onPressed:
+                                          _busy ? null : _addExtraFromCamera,
+                                      icon: const Icon(
+                                        Icons.photo_camera_outlined,
+                                        size: 17,
+                                      ),
+                                      label: const Text('Camera'),
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor: AppLux.charcoalMid,
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: 12,
+                                        ),
+                                        side: const BorderSide(
+                                          color: AppLux.border,
+                                          width: 0.85,
+                                        ),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: OutlinedButton.icon(
+                                      onPressed:
+                                          _busy ? null : _addExtraFromGallery,
+                                      icon: const Icon(
+                                        Icons.add_photo_alternate_outlined,
+                                        size: 17,
+                                      ),
+                                      label: const Text('Gallery'),
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor: AppLux.charcoalMid,
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: 12,
+                                        ),
+                                        side: const BorderSide(
+                                          color: AppLux.border,
+                                          width: 0.85,
+                                        ),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                            const SizedBox(height: 20),
+                          ],
+                        ),
+                      ),
                     ),
-                    if (_isQuickScan) ...[
-                      const SizedBox(height: 28),
-                      _buildQuickScanAreaCard(),
-                    ] else ...[
-                      const SizedBox(height: 18),
-                      Text(
-                        'Checklist',
-                        style: GoogleFonts.inter(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w800,
-                          color: AppLux.charcoal,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      for (var i = 0; i < _slots.length; i++)
-                        _SlotTile(
-                          index: i,
-                          slot: _slots[i],
-                          focused: i == _focusIndex,
-                          onTap: () => _showShotActions(i),
-                        ),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Text(
-                            'Extra close-ups',
-                            style: GoogleFonts.inter(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w800,
-                              color: AppLux.charcoal,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Optional',
-                            style: GoogleFonts.inter(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: AppLux.muted,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Add more problem areas if you have them.',
-                        style: GoogleFonts.inter(
-                          fontSize: 12.5,
-                          color: AppLux.body,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      if (_extraCloseups.isEmpty)
-                        Text(
-                          'None yet',
-                          style: GoogleFonts.inter(
-                            fontSize: 13,
-                            color: AppLux.muted,
-                          ),
-                        )
-                      else
-                        SizedBox(
-                          height: 88,
-                          child: ListView.separated(
-                            scrollDirection: Axis.horizontal,
-                            itemCount: _extraCloseups.length,
-                            separatorBuilder: (_, _) =>
-                                const SizedBox(width: 8),
-                            itemBuilder: (context, i) {
-                              return _ExtraThumb(
-                                photo: _extraCloseups[i].photo,
-                                onRemove: () => _removeExtra(i),
-                              );
-                            },
-                          ),
-                        ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: _busy ? null : _addExtraFromCamera,
-                              icon: const Icon(
-                                Icons.photo_camera_outlined,
-                                size: 18,
-                              ),
-                              label: const Text('Camera'),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: AppLux.charcoal,
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 12,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: _busy ? null : _addExtraFromGallery,
-                              icon: const Icon(
-                                Icons.add_photo_alternate_outlined,
-                                size: 18,
-                              ),
-                              label: const Text('Gallery'),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: AppLux.charcoal,
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 12,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                    const SizedBox(height: 24),
                   ],
                 ),
               ),
 
               // Continue bar
               Container(
-                padding: EdgeInsets.fromLTRB(20, 12, 20, 12 + bottom),
+                padding: EdgeInsets.fromLTRB(20, 14, 20, 14 + bottom),
                 decoration: BoxDecoration(
-                  color: _isQuickScan ? AppLux.surface : Colors.white,
-                  border: const Border(
-                    top: BorderSide(color: AppLux.border),
+                  color: _isQuickScan ? _QsLux.surface : AppLux.surface,
+                  border: Border(
+                    top: BorderSide(
+                      color: _isQuickScan ? _QsLux.border : AppLux.border,
+                      width: 0.75,
+                    ),
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.04),
-                      blurRadius: 10,
-                      offset: const Offset(0, -3),
+                      color: AppLux.charcoal.withValues(alpha: 0.04),
+                      blurRadius: 16,
+                      offset: const Offset(0, -4),
                     ),
                   ],
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    if (!_canContinue)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: Text(
-                          widget.retakeMode
-                              ? 'Capture a new ${_focusSlot.def.shortLabel} shot, then re-run analysis.'
-                              : _isQuickScan
-                              ? 'Add one clear photo to continue.'
-                              : 'Complete all 6 checklist shots to continue.',
-                          textAlign: TextAlign.center,
-                          style: GoogleFonts.inter(
-                            fontSize: 12.5,
-                            color: _isQuickScan
-                                ? AppLux.muted
-                                : AppLux.body,
+                child: Align(
+                  alignment: Alignment.center,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 520),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (!_canContinue)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: Text(
+                              widget.retakeMode
+                                  ? 'Capture a new ${_focusSlot.def.shortLabel} shot, then re-run analysis.'
+                                  : _isQuickScan
+                                  ? 'Add one clear photo to continue.'
+                                  : 'Complete all 6 shots to continue.',
+                              textAlign: TextAlign.center,
+                              style: GoogleFonts.inter(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                                color: _isQuickScan
+                                    ? _QsLux.muted
+                                    : AppLux.muted,
+                              ),
+                            ),
+                          )
+                        else if (_isQuickScan)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: Text(
+                              'Tagged: ${_quickArea.label}'
+                              '${_quickArea.hint.isNotEmpty ? ' · ${_quickArea.hint}' : ''}',
+                              textAlign: TextAlign.center,
+                              style: GoogleFonts.inter(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w500,
+                                color: _QsLux.body,
+                                height: 1.4,
+                              ),
+                            ),
+                          ),
+                        FilledButton(
+                          onPressed: (_busy || !_canContinue) ? null : _continue,
+                          style: FilledButton.styleFrom(
+                            backgroundColor: _canContinue
+                                ? (_isQuickScan ? _QsLux.teal : AppLux.tealDeep)
+                                : const Color(0xFFD6D3D1),
+                            disabledBackgroundColor: const Color(0xFFE7E5E4),
+                            foregroundColor: Colors.white,
+                            disabledForegroundColor: const Color(0xFFA8A29E),
+                            minimumSize: const Size(double.infinity, 52),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(
+                                _isQuickScan ? 16 : 14,
+                              ),
+                            ),
+                            elevation: 0,
+                            textStyle: GoogleFonts.inter(
+                              fontSize: 15.5,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: -0.15,
+                            ),
+                          ),
+                          child: Text(
+                            widget.retakeMode
+                                ? (_canContinue
+                                      ? 'Re-run analysis with new photo'
+                                      : 'Retake ${_focusSlot.def.shortLabel} first')
+                                : _isQuickScan
+                                ? (_canContinue
+                                      ? 'Continue to screening'
+                                      : 'Add a photo first')
+                                : (_canContinue
+                                      ? 'Review ${_allPhotos.length} photos'
+                                      : 'Review photos'),
                           ),
                         ),
-                      )
-                    else if (_isQuickScan)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: Text(
-                          'Tagged: ${_quickArea.label}'
-                          '${_quickArea.hint.isNotEmpty ? ' · ${_quickArea.hint}' : ''}',
-                          textAlign: TextAlign.center,
-                          style: GoogleFonts.inter(
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w500,
-                            color: AppLux.body,
-                            height: 1.4,
-                          ),
-                        ),
-                      ),
-                    FilledButton(
-                      onPressed: _busy ? null : _continue,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: _canContinue
-                            ? AppLux.teal
-                            : AppLux.teal
-                                  .withValues(alpha: 0.45),
-                        foregroundColor: Colors.white,
-                        minimumSize: const Size(double.infinity, 52),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(
-                            _isQuickScan ? 16 : 14,
-                          ),
-                        ),
-                        elevation: _isQuickScan && _canContinue ? 0 : null,
-                        textStyle: GoogleFonts.inter(
-                          fontSize: 15.5,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: _isQuickScan ? -0.1 : null,
-                        ),
-                      ),
-                      child: Text(
-                        widget.retakeMode
-                            ? (_canContinue
-                                  ? 'Re-run analysis with new photo'
-                                  : 'Retake ${_focusSlot.def.shortLabel} first')
-                            : _isQuickScan
-                            ? (_canContinue
-                                  ? 'Continue to screening'
-                                  : 'Add a photo first')
-                            : (_canContinue
-                                  ? 'Review ${_allPhotos.length} photos'
-                                  : 'Review photos'),
-                      ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
             ],
@@ -1351,18 +1433,18 @@ class _GuidedCaptureScreenState extends State<GuidedCaptureScreen> {
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(_isQuickScan ? 18 : 16),
                     border: _isQuickScan
-                        ? Border.all(color: AppLux.border, width: 0.75)
+                        ? Border.all(color: _QsLux.border, width: 0.75)
                         : null,
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const SizedBox(
+                      SizedBox(
                         width: 28,
                         height: 28,
                         child: CircularProgressIndicator(
                           strokeWidth: 2.5,
-                          color: AppLux.teal,
+                          color: _isQuickScan ? _QsLux.teal : AppLux.teal,
                         ),
                       ),
                       const SizedBox(height: 14),
@@ -1370,7 +1452,9 @@ class _GuidedCaptureScreenState extends State<GuidedCaptureScreen> {
                         _busyLabel ?? 'Working…',
                         style: GoogleFonts.inter(
                           fontWeight: FontWeight.w600,
-                          color: AppLux.charcoal,
+                          color: _isQuickScan
+                              ? _QsLux.charcoal
+                              : AppLux.charcoal,
                         ),
                       ),
                     ],
@@ -1392,12 +1476,12 @@ class _GuidedCaptureScreenState extends State<GuidedCaptureScreen> {
         width: double.infinity,
         padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
         decoration: BoxDecoration(
-          color: AppLux.surface,
+          color: _QsLux.surface,
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: AppLux.border, width: 0.75),
+          border: Border.all(color: _QsLux.border, width: 0.75),
           boxShadow: [
             BoxShadow(
-              color: AppLux.charcoal.withValues(alpha: 0.03),
+              color: _QsLux.charcoal.withValues(alpha: 0.03),
               blurRadius: 18,
               offset: const Offset(0, 8),
             ),
@@ -1413,14 +1497,14 @@ class _GuidedCaptureScreenState extends State<GuidedCaptureScreen> {
                   height: 36,
                   decoration: BoxDecoration(
                     color: ready
-                        ? AppLux.tealMist
-                        : AppLux.goldSoft.withValues(alpha: 0.7),
+                        ? _QsLux.tealMist
+                        : _QsLux.goldSoft.withValues(alpha: 0.7),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(
                     ready ? Icons.check_rounded : Icons.bolt_rounded,
                     size: 20,
-                    color: ready ? AppLux.teal : AppLux.gold,
+                    color: ready ? _QsLux.teal : _QsLux.gold,
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -1435,7 +1519,7 @@ class _GuidedCaptureScreenState extends State<GuidedCaptureScreen> {
                         style: GoogleFonts.inter(
                           fontSize: 15.5,
                           fontWeight: FontWeight.w700,
-                          color: AppLux.charcoal,
+                          color: _QsLux.charcoal,
                           letterSpacing: -0.25,
                           height: 1.2,
                         ),
@@ -1446,7 +1530,7 @@ class _GuidedCaptureScreenState extends State<GuidedCaptureScreen> {
                         style: GoogleFonts.inter(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
-                          color: ready ? AppLux.teal : AppLux.muted,
+                          color: ready ? _QsLux.teal : _QsLux.muted,
                           letterSpacing: 0.15,
                         ),
                       ),
@@ -1461,8 +1545,8 @@ class _GuidedCaptureScreenState extends State<GuidedCaptureScreen> {
               child: LinearProgressIndicator(
                 value: ready ? 1.0 : 0.12,
                 minHeight: 5,
-                backgroundColor: AppLux.border,
-                color: AppLux.teal,
+                backgroundColor: _QsLux.border,
+                color: _QsLux.teal,
               ),
             ),
             const SizedBox(height: 12),
@@ -1473,7 +1557,7 @@ class _GuidedCaptureScreenState extends State<GuidedCaptureScreen> {
                         'Single-angle screening is faster; a full 6-shot set is more thorough.',
               style: GoogleFonts.inter(
                 fontSize: 13,
-                color: AppLux.body,
+                color: _QsLux.body,
                 height: 1.5,
                 letterSpacing: 0.05,
               ),
@@ -1490,9 +1574,9 @@ class _GuidedCaptureScreenState extends State<GuidedCaptureScreen> {
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
       decoration: BoxDecoration(
-        color: AppLux.surface,
+        color: _QsLux.surface,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppLux.border, width: 0.75),
+        border: Border.all(color: _QsLux.border, width: 0.75),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1504,7 +1588,7 @@ class _GuidedCaptureScreenState extends State<GuidedCaptureScreen> {
                 style: GoogleFonts.inter(
                   fontSize: 14.5,
                   fontWeight: FontWeight.w700,
-                  color: AppLux.charcoal,
+                  color: _QsLux.charcoal,
                   letterSpacing: -0.2,
                 ),
               ),
@@ -1512,7 +1596,7 @@ class _GuidedCaptureScreenState extends State<GuidedCaptureScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: AppLux.goldSoft.withValues(alpha: 0.75),
+                  color: _QsLux.goldSoft.withValues(alpha: 0.75),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
@@ -1520,7 +1604,7 @@ class _GuidedCaptureScreenState extends State<GuidedCaptureScreen> {
                   style: GoogleFonts.inter(
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
-                    color: AppLux.gold,
+                    color: _QsLux.gold,
                     letterSpacing: 0.2,
                   ),
                 ),
@@ -1532,7 +1616,7 @@ class _GuidedCaptureScreenState extends State<GuidedCaptureScreen> {
             'Helps screening prioritize the right systems. Leave as General if you are unsure.',
             style: GoogleFonts.inter(
               fontSize: 12.5,
-              color: AppLux.body,
+              color: _QsLux.body,
               height: 1.5,
             ),
           ),
@@ -1579,12 +1663,12 @@ class _QuickAreaChip extends StatelessWidget {
           curve: Curves.easeOutCubic,
           padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
           decoration: BoxDecoration(
-            color: selected ? AppLux.tealMist : AppLux.bg,
+            color: selected ? _QsLux.tealMist : _QsLux.bg,
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
               color: selected
-                  ? AppLux.teal.withValues(alpha: 0.45)
-                  : AppLux.border,
+                  ? _QsLux.teal.withValues(alpha: 0.45)
+                  : _QsLux.border,
               width: selected ? 1.1 : 0.75,
             ),
           ),
@@ -1597,7 +1681,7 @@ class _QuickAreaChip extends StatelessWidget {
                 style: GoogleFonts.inter(
                   fontSize: 12.5,
                   fontWeight: FontWeight.w700,
-                  color: selected ? AppLux.teal : AppLux.charcoal,
+                  color: selected ? _QsLux.teal : _QsLux.charcoal,
                   letterSpacing: -0.1,
                 ),
               ),
@@ -1609,8 +1693,8 @@ class _QuickAreaChip extends StatelessWidget {
                     fontSize: 10.5,
                     fontWeight: FontWeight.w500,
                     color: selected
-                        ? AppLux.teal.withValues(alpha: 0.75)
-                        : AppLux.muted,
+                        ? _QsLux.teal.withValues(alpha: 0.75)
+                        : _QsLux.muted,
                   ),
                 ),
               ],
@@ -1624,7 +1708,7 @@ class _QuickAreaChip extends StatelessWidget {
 
 enum _QualityChoice { retake, useAnyway }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 
 class _SlotTile extends StatelessWidget {
   const _SlotTile({
@@ -1649,39 +1733,42 @@ class _SlotTile extends StatelessWidget {
         (!slot.quality!.ok || slot.quality!.hasWarnings);
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 7),
       child: Material(
-        color: Colors.white,
+        color: AppLux.surface,
         borderRadius: BorderRadius.circular(14),
         child: InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(14),
           child: Container(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.fromLTRB(11, 11, 12, 11),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
                 color: focused
-                    ? AppLux.teal.withValues(alpha: 0.55)
+                    ? AppLux.teal.withValues(alpha: 0.4)
                     : AppLux.border,
-                width: focused ? 1.5 : 1,
+                width: focused ? 1.25 : 0.85,
               ),
             ),
             child: Row(
               children: [
                 // Status / thumb
                 SizedBox(
-                  width: 52,
-                  height: 52,
+                  width: 48,
+                  height: 48,
                   child: Stack(
                     children: [
                       Container(
-                        width: 52,
-                        height: 52,
+                        width: 48,
+                        height: 48,
                         decoration: BoxDecoration(
-                          color: const Color(0xFFF1F5F9),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: AppLux.border),
+                          color: AppLux.cardFill,
+                          borderRadius: BorderRadius.circular(11),
+                          border: Border.all(
+                            color: AppLux.border,
+                            width: 0.75,
+                          ),
                         ),
                         clipBehavior: Clip.antiAlias,
                         child: hasPhoto

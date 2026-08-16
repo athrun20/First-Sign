@@ -24,6 +24,9 @@ analyzer:
     - linux/**
     - macos/**
     - web/**
+    # Local micro-benches / one-off tools (not app code).
+    - tool_*.dart
+    - '**/tool_*.dart'
   errors:
     # Real debt stays visible as warnings (not infos that flood the panel).
     unused_import: warning
@@ -48,4 +51,3 @@ linter:
     avoid_unnecessary_containers: true
     sized_box_for_whitespace: true
     use_super_parameters: true
-

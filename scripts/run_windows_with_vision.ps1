@@ -1,4 +1,4 @@
-# Run FirstSign on Windows desktop with Formspree + optional Vision.
+# Run First Sign on Windows desktop with Formspree + optional Vision.
 # Windows is the most reliable desktop target for Google Cloud Vision
 # (Edge/web can hit CORS and fall back to local).
 #
@@ -34,5 +34,5 @@ if (-not $hasVision) {
   exit 1
 }
 
-Write-Host "Starting FirstSign on Windows with Formspree + Cloud Vision ..." -ForegroundColor Green
+Write-Host "Starting First Sign on Windows with Formspree + Cloud Vision ..." -ForegroundColor Green
 flutter run -d windows --dart-define-from-file=formspree.env.json

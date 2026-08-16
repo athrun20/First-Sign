@@ -6,17 +6,19 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../theme/app_lux.dart';
 
-/// Good / Fair / Needs Attention from overall score bands used across the app.
+/// Good / Stable / Needs Attention from overall score bands used across the app.
+///
+/// 80+ reads as Good so an 81 with no emergency does not say "Fair".
 String conditionStatusFromScore(int score) {
-  if (score >= 85) return 'Good';
-  if (score >= 70) return 'Fair';
+  if (score >= 80) return 'Good';
+  if (score >= 68) return 'Stable';
   return 'Needs Attention';
 }
 
-/// Score-band accent: teal ≥85 · warm fair 70–84 · danger &lt;70.
+/// Score-band accent: teal ≥80 · deep teal stable 68–79 · danger &lt;68.
 Color conditionStatusColor(int score) {
-  if (score >= 85) return AppLux.teal;
-  if (score >= 70) return AppLux.warning;
+  if (score >= 80) return AppLux.teal;
+  if (score >= 68) return AppLux.tealDeep;
   return AppLux.danger;
 }
 
@@ -195,11 +197,7 @@ class _ConditionScoreDialPainter extends CustomPainter {
         if (strength > 0.35) {
           final bloom = strength * (0.55 + 0.45 * g);
           glowPaint.color = accent.withValues(alpha: 0.10 + 0.14 * bloom);
-          canvas.drawCircle(
-            pos,
-            r * (1.9 + 0.55 * g * strength),
-            glowPaint,
-          );
+          canvas.drawCircle(pos, r * (1.9 + 0.55 * g * strength), glowPaint);
         }
 
         canvas.drawCircle(pos, r, activePaint);

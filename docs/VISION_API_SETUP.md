@@ -1,4 +1,4 @@
-# Google Cloud Vision setup (FirstSign)
+# Google Cloud Vision setup (First Sign)
 
 When a key is present at build/run time, analysis uses **Google Cloud Vision**
 (label + object + color) fused with the local multi-feature pipeline.  
@@ -79,7 +79,7 @@ Demo Mode and calibration still use local features when forced offline.
 ## 5. Web (Edge) CORS note
 
 The Vision REST API is called **from the client**. Some browsers block the
-request (CORS). If that happens, FirstSign **falls back to local** automatically.
+request (CORS). If that happens, First Sign **falls back to local** automatically.
 
 For a reliable Vision pass during development:
 

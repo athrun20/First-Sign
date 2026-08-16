@@ -147,7 +147,7 @@ void main() {
   group('Consistency & honesty', () {
     test('same golden input yields same score and issue titles', () {
       final photos = [
-        ExteriorFeatureSnapshot.damagedRoof(seed: 21),
+        ExteriorFeatureSnapshot.damagedRoof(),
         ExteriorFeatureSnapshot.damagedRoof(seed: 22),
       ];
       final labels = {'roof': 0.94, 'shingle': 0.88, 'damage': 0.82};

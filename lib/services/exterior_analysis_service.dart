@@ -9,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 import '../models/analysis_models.dart';
 import '../models/capture_models.dart';
 import 'analysis_feature_snapshot.dart';
+import 'finding_retake_service.dart';
 
 /// Analyzes homeowner exterior photos via Google Cloud Vision when a key is
 /// provided, otherwise uses an on-device multi-feature pipeline.
@@ -103,6 +104,22 @@ class ExteriorAnalysisService {
 
   // ── Vision label trust filters ───────────────────────────────────────────
 
+  /// Person / portrait labels — a face photo is never exterior evidence.
+  static const List<String> _personNeedles = [
+    'person',
+    'people',
+    'human',
+    'face',
+    'selfie',
+    'portrait',
+    'headshot',
+    'mugshot',
+    'man',
+    'woman',
+    'child',
+    'crowd',
+  ];
+
   /// Labels that strongly indicate the photo is *not* a home exterior.
   /// Kitchen / indoor appliance scenes must never mint roof/siding findings.
   static const List<String> _nonExteriorNeedles = [
@@ -112,6 +129,7 @@ class ExteriorAnalysisService {
     'face',
     'selfie',
     'portrait',
+    'headshot',
     'man',
     'woman',
     'child',
@@ -258,6 +276,35 @@ class ExteriorAnalysisService {
     'appliance',
   ];
 
+  /// Roof / siding / gutter / foundation — not a generic house behind a person.
+  static const List<String> _exteriorSystemNeedles = [
+    'roof',
+    'rooftop',
+    'shingle',
+    'tile roof',
+    'ridge',
+    'eave',
+    'eaves',
+    'chimney',
+    'flashing',
+    'skylight',
+    'gutter',
+    'downspout',
+    'soffit',
+    'fascia',
+    'siding',
+    'cladding',
+    'brick',
+    'brickwork',
+    'masonry',
+    'stucco',
+    'vinyl siding',
+    'facade',
+    'façade',
+    'foundation',
+    'crawlspace',
+  ];
+
   /// True exterior envelope structure (not indoor walls/paint/tile/windows).
   static const List<String> _exteriorStructureNeedles = [
     'roof',
@@ -396,6 +443,46 @@ class ExteriorAnalysisService {
   static bool _anyNeedle(String key, List<String> needles) =>
       needles.any((n) => _needleHit(key, n));
 
+  /// Person/face tokens as whole words — do not match "surface" via "face".
+  static bool _personLabelHit(String key) {
+    for (final n in _personNeedles) {
+      if (key == n) return true;
+      if (key.startsWith('$n ') ||
+          key.endsWith(' $n') ||
+          key.contains(' $n ')) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  static bool _portraitTypeLabelHit(String key) {
+    const types = ['selfie', 'portrait', 'headshot', 'mugshot'];
+    for (final n in types) {
+      if (key == n) return true;
+      if (key.startsWith('$n ') ||
+          key.endsWith(' $n') ||
+          key.contains(' $n ')) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  static bool _faceLabelHit(String key) {
+    return key == 'face' ||
+        key.startsWith('face ') ||
+        key.endsWith(' face') ||
+        key.contains(' face ');
+  }
+
+  /// Roof / siding / gutter / foundation — a house in the background is not enough.
+  static bool isExteriorSystemLabel(String raw) {
+    final key = raw.toLowerCase().trim();
+    if (key.isEmpty) return false;
+    return _anyNeedle(key, _exteriorSystemNeedles);
+  }
+
   /// True exterior envelope structure label (gates indoor wall/paint/tile).
   static bool isExteriorStructureLabel(String raw) {
     final key = raw.toLowerCase().trim();
@@ -473,11 +560,14 @@ class ExteriorAnalysisService {
 
   /// Keep only exterior-relevant scores (drops people / indoor / product noise).
   static Map<String, double> filterExteriorVisionLabels(
-    Map<String, double> raw,
-  ) {
+    Map<String, double> raw, {
+    bool dropSceneIfNonExterior = true,
+  }) {
     // When the scene is clearly indoor / people / product, drop everything —
     // do not keep a stray "building" or "window" that invents exterior work.
-    if (isClearlyNonExteriorScene(raw)) {
+    // Mixed scans (portrait + roof) pass [dropSceneIfNonExterior] = false so
+    // roof cues survive after per-frame / per-photo exclusion.
+    if (dropSceneIfNonExterior && isClearlyNonExteriorScene(raw)) {
       return const {};
     }
 
@@ -529,6 +619,37 @@ class ExteriorAnalysisService {
         exteriorMass += s;
       }
     }
+
+    var person = 0.0;
+    var personMass = 0.0;
+    var face = 0.0;
+    var portraitType = 0.0;
+    var system = 0.0;
+    for (final e in rawLabels.entries) {
+      final key = e.key.toLowerCase().trim();
+      final s = e.value.clamp(0.0, 1.0);
+      if (key.isEmpty || s < 0.12) continue;
+      if (_personLabelHit(key)) {
+        person = max(person, s);
+        personMass += s;
+      }
+      if (_faceLabelHit(key)) face = max(face, s);
+      if (_portraitTypeLabelHit(key)) portraitType = max(portraitType, s);
+      if (isExteriorSystemLabel(key)) system = max(system, s);
+    }
+
+    // Portrait / selfie / face — never treat as an exterior screening photo,
+    // even if a house sits in the background. Generic house/building does
+    // not defeat this gate; only a real roof/siding/gutter/foundation system.
+    if (portraitType >= 0.40) return true;
+    if (face >= 0.58 && person >= 0.42) return true;
+    if (person >= 0.70 && system < 0.50) return true;
+    if (person >= 0.78 && (face >= 0.40 || system < 0.55)) return true;
+    if (person >= 0.55 && person + 0.08 >= system && system < 0.70) {
+      return true;
+    }
+    if (person >= 0.42 && system < 0.52) return true;
+    if (personMass >= 0.90 && system < 0.60) return true;
 
     // Hard indoor room / appliance with no real exterior envelope.
     if (hardIndoor >= 0.35 && exterior < 0.50) return true;
@@ -981,7 +1102,8 @@ class ExteriorAnalysisService {
       bool has(List<String> needles) => _anyNeedle(key, needles);
 
       // Roof system — bare "asphalt" / "tile" alone are not roof (roads / floors).
-      final roofMaterial = has([
+      final roofMaterial =
+          has([
             'roof',
             'rooftop',
             'shingle',
@@ -1097,21 +1219,56 @@ class ExteriorAnalysisService {
         bump('foundation', s * 0.82);
         bump('concrete', s * 0.7);
       }
-      // Cracks only when structure/foundation context exists
+      // Cracks only when structure/foundation context exists.
+      // Window/glass shatter lines must not mint cladding crack labels.
+      final glassContext = has([
+        'window',
+        'glass',
+        'pane',
+        'glazing',
+        'sill',
+      ]);
       if (has(['crack', 'settlement', 'fracture']) &&
           (hasStructure ||
               has(['foundation', 'concrete', 'siding', 'brick', 'stucco']))) {
-        bump('crack', s * 0.88);
-        if (has(['foundation', 'concrete', 'settlement', 'basement'])) {
-          bump('foundation', max(out['foundation'] ?? 0, s * 0.75));
+        if (glassContext &&
+            !has(['siding', 'cladding', 'clapboard', 'vinyl siding'])) {
+          // Prefer window domain for glass + crack language.
+          bump('window', max(out['window'] ?? 0, s * 0.88));
+          bump('glass', max(out['glass'] ?? 0, s * 0.82));
+        } else {
+          bump('crack', s * 0.88);
+          if (has(['foundation', 'concrete', 'settlement', 'basement'])) {
+            bump('foundation', max(out['foundation'] ?? 0, s * 0.75));
+          }
         }
       }
 
       // Windows / openings on exterior elevations
       if (hasStructure &&
-          has(['window', 'door', 'caulk', 'seal', 'window frame'])) {
+          has([
+            'window',
+            'door',
+            'caulk',
+            'seal',
+            'window frame',
+            'glass',
+            'pane',
+            'glazing',
+          ])) {
         bump('window', s * 0.9);
         bump('seal', s * 0.55);
+        if (has(['glass', 'pane', 'glazing'])) {
+          bump('glass', max(out['glass'] ?? 0, s * 0.85));
+        }
+      }
+      // Broken glass language (with or without generic structure tags).
+      if (has(['broken glass', 'shattered', 'shatter', 'cracked glass']) ||
+          (has(['glass', 'window', 'pane']) &&
+              has(['broken', 'shatter', 'damage']))) {
+        bump('window', max(out['window'] ?? 0, s * 0.92));
+        bump('glass', max(out['glass'] ?? 0, s * 0.9));
+        bump('broken', max(out['broken'] ?? 0, s * 0.75));
       }
 
       // Vegetation against structure only — not generic indoor plants
@@ -1196,43 +1353,55 @@ class ExteriorAnalysisService {
 
     final features = snapshots.map(_ImageFeatures.fromSnapshot).toList();
     final agg = _ImageFeatures.aggregate(features);
+    final photos = capturePhotos ?? const [];
+    final hasExteriorCapture = photos.any(_isExteriorCapturePhoto);
 
     // Indoor / people / product scenes never mint exterior findings — same
     // path as live Vision analysis (Quick Scan and Full Assessment).
-    if (labels.isNotEmpty && isClearlyNonExteriorScene(labels)) {
+    // Mixed sets (portrait + roof) keep going when a real exterior photo exists.
+    if (labels.isNotEmpty &&
+        isClearlyNonExteriorScene(labels) &&
+        !hasExteriorCapture) {
       return _insufficientExteriorReport(
         photoCount: snapshots.length,
         source: source,
         features: agg,
       );
     }
+
+    // Drop people / indoor keys only — keep paint/peel/roof cues that the
+    // strict exterior-relevant filter would discard as too generic.
+    final detectLabels = {
+      for (final e in labels.entries)
+        if (!isNonExteriorLabel(e.key)) e.key: e.value,
+    };
 
     // Filtered labels with no exterior envelope → honest empty report.
     if (labels.isNotEmpty &&
         visionMode &&
-        !hasExteriorEvidence(labels) &&
-        !hasExteriorEvidence(filterExteriorVisionLabels(labels))) {
+        !hasExteriorEvidence(detectLabels) &&
+        !hasExteriorEvidence(filterExteriorVisionLabels(labels)) &&
+        !hasExteriorCapture) {
       return _insufficientExteriorReport(
         photoCount: snapshots.length,
         source: source,
         features: agg,
       );
     }
-
     final hits = photoHits.isNotEmpty
         ? photoHits
         : {
-            for (final e in labels.entries)
+            for (final e in detectLabels.entries)
               e.key: e.value >= 0.55 ? snapshots.length : 1,
           };
 
     final issues = _detectIssues(
       features: features,
-      labels: labels,
+      labels: detectLabels,
       photoHits: hits,
       photoCount: snapshots.length,
       visionMode: visionMode,
-      capturePhotos: capturePhotos ?? const [],
+      capturePhotos: photos,
     );
 
     return _buildReport(
@@ -1346,11 +1515,20 @@ class ExteriorAnalysisService {
     // Single HTTP round-trip for multi-photo (and single-photo) efficiency.
     final frames = await _annotateImagesBatch(prepared);
 
-    // Merge raw labels first for non-exterior scene detection (pre-filter).
+    // Merge only exterior frames — a selfie in the set must not wipe a roof
+    // photo, and must never contribute labels or boxes to findings.
     final rawMerged = <String, double>{};
     final visionBoxes = <_VisionObjectBox>[];
+    var exteriorFrameCount = 0;
     for (var i = 0; i < frames.length; i++) {
       final frame = frames[i];
+      final captionNonExt = i < capturePhotos.length &&
+          !_isExteriorCapturePhoto(capturePhotos[i]) &&
+          _isNonExteriorCapturePhoto(capturePhotos[i]);
+      if (isClearlyNonExteriorScene(frame.labels) || captionNonExt) {
+        continue;
+      }
+      exteriorFrameCount++;
       for (final e in frame.labels.entries) {
         final prev = rawMerged[e.key] ?? 0;
         if (e.value > prev) rawMerged[e.key] = e.value;
@@ -1372,7 +1550,9 @@ class ExteriorAnalysisService {
     final agg = _ImageFeatures.aggregate(stats);
 
     // People / indoor / product-dominant photos: do not invent exterior issues.
-    if (isClearlyNonExteriorScene(rawMerged)) {
+    // All frames excluded (portraits / indoor) → honest empty report.
+    if ((frames.isNotEmpty && exteriorFrameCount == 0) ||
+        isClearlyNonExteriorScene(rawMerged)) {
       return _insufficientExteriorReport(
         photoCount: images.length,
         source: source,
@@ -1770,16 +1950,16 @@ class ExteriorAnalysisService {
     }
 
     final agg = _ImageFeatures.aggregate(features);
-    final source =
+    const source =
         'AI exterior screening · local multi-feature (add GOOGLE_VISION_API_KEY for Cloud Vision)';
 
-    // Caption-only indoor language (kitchen/appliance/room) on Quick Scan or
-    // Full Assessment — never invent exterior damage from slot tags alone.
-    final captionBlob = capturePhotos
-        .map((p) => '${p.label} ${p.file.name}')
-        .join(' ')
-        .toLowerCase();
-    if (_captionClearlyIndoor(captionBlob)) {
+    // Per-photo indoor / person captions — a selfie in the set must not
+    // reject a roof photo, and an all-portrait set must not invent findings.
+    final outdoorPhotos = [
+      for (final p in capturePhotos)
+        if (_isExteriorCapturePhoto(p)) p,
+    ];
+    if (capturePhotos.isNotEmpty && outdoorPhotos.isEmpty) {
       return _insufficientExteriorReport(
         photoCount: images.length,
         source: source,
@@ -1792,6 +1972,10 @@ class ExteriorAnalysisService {
     // Damage invent requires exterior feature support and/or exterior caption
     // language so mis-tagged indoor photos cannot mint shingle Highs — while
     // real roof calibration shots labeled "Roof slope" still work.
+    final captionBlob = outdoorPhotos
+        .map((p) => '${p.label} ${p.file.name}')
+        .join(' ')
+        .toLowerCase();
     final captionExteriorSupport = _captionClearlyExterior(captionBlob);
     final localExteriorSupport =
         captionExteriorSupport ||
@@ -1835,6 +2019,15 @@ class ExteriorAnalysisService {
     );
   }
 
+  static bool _isNonExteriorCapturePhoto(CapturePhoto photo) {
+    return FindingRetakeService.looksNonExteriorPhoto(photo) ||
+        _captionClearlyIndoor('${photo.label} ${photo.file.name}');
+  }
+
+  /// Usable exterior frame — not a person / indoor / product caption.
+  static bool _isExteriorCapturePhoto(CapturePhoto photo) =>
+      !_isNonExteriorCapturePhoto(photo);
+
   /// Caption/filename language that clearly describes an indoor scene.
   static bool _captionClearlyIndoor(String caption) {
     final c = caption.toLowerCase();
@@ -1863,7 +2056,17 @@ class ExteriorAnalysisService {
       'couch',
       'furniture',
     ];
-    return needles.any(c.contains);
+    if (needles.any(c.contains)) return true;
+    final tokens = c.split(RegExp('[^a-z0-9]+')).where((t) => t.isNotEmpty);
+    const people = {
+      'person',
+      'people',
+      'selfie',
+      'portrait',
+      'headshot',
+      'face',
+    };
+    return tokens.any(people.contains);
   }
 
   /// Caption/filename language that clearly describes exterior systems.
@@ -1922,15 +2125,21 @@ class ExteriorAnalysisService {
       final f = i < features.length ? features[i] : null;
       final slot = photo.slotId;
       final caption = '${photo.label} ${photo.file.name}'.toLowerCase();
+      if (_isNonExteriorCapturePhoto(photo)) continue;
 
       // Slot priors
       if (slot == CaptureShotId.roof) {
+        // Default checklist title is "Roof & eaves" — that must stay roof-first.
+        // Do not invent gutter/overflow from the stock slot name alone.
+        final defaultRoofSlotName =
+            caption.contains('roof & eave') ||
+            caption.contains('roof and eave');
         final eaveFocused =
-            caption.contains('eave') ||
             caption.contains('gutter') ||
             caption.contains('fascia') ||
             caption.contains('soffit') ||
-            caption.contains('overflow');
+            caption.contains('overflow') ||
+            (caption.contains('eave') && !defaultRoofSlotName);
         // Require roof-like image support OR explicit roof caption language.
         // Slot tag alone must not invent a roof on indoor mis-tags.
         final roofFeatureOk =
@@ -1996,8 +2205,9 @@ class ExteriorAnalysisService {
               // surface Medium findings under local multi-feature mode.
               bump('damage', 0.72);
               bump('worn', 0.58);
-            } else if (roofGeomOk && f != null && f.roofSignal > 0.48) {
+            } else if (roofGeomOk && f.roofSignal > 0.48) {
               // Geometry-only presence — mild wear prior, not hard damage invent.
+              // (f is non-null when roofGeomOk is true.)
               bump('worn', 0.48);
             }
           }
@@ -2013,6 +2223,19 @@ class ExteriorAnalysisService {
             caption.contains('spall') ||
             caption.contains('grade') ||
             caption.contains('honeycomb');
+        // Pipe / soil / mulch close-ups are grade drainage, not wall cladding.
+        final captionGradeOutlet =
+            caption.contains('pipe') ||
+            caption.contains('outlet') ||
+            caption.contains('discharge') ||
+            caption.contains('soil') ||
+            caption.contains('mulch') ||
+            caption.contains('gravel') ||
+            (caption.contains('downspout') &&
+                (caption.contains('ground') ||
+                    caption.contains('base') ||
+                    caption.contains('end') ||
+                    caption.contains('foundation')));
         final captionPaint =
             caption.contains('paint') ||
             caption.contains('peel') ||
@@ -2032,7 +2255,9 @@ class ExteriorAnalysisService {
             caption.contains('siding') ||
             caption.contains('brick') ||
             caption.contains('cladding') ||
-            caption.contains('wall');
+            (caption.contains('wall') &&
+                !captionFoundation &&
+                !captionGradeOutlet);
 
         if (f != null && allowDamageInvent) {
           // Only invent roof damage priors when caption is roof-focused or
@@ -2094,26 +2319,44 @@ class ExteriorAnalysisService {
               bump('leaf', 0.42);
             }
           }
-          // Paint only when caption is peel-focused or peel texture is extreme.
-          // Healthy elevations often have luminance variance that is not peel.
-          if ((captionPaint && !captionFoundation) ||
-              (f.peelingScore > 0.58 &&
-                  f.highLuminanceVariance > 0.55 &&
-                  !captionWall &&
-                  !captionFoundation &&
-                  !captionRoof)) {
+          // Foundation / grade / outlet close-ups share edges with walls — do not
+          // invent cladding damage when the frame is soil, pipe, or base.
+          // Device "Problem close-up" captions are often generic; rely on geometry.
+          final frameLooksGrade =
+              captionGradeOutlet ||
+              captionFoundation ||
+              (f.foundationSignal > 0.42 &&
+                  f.wallSignal < 0.50 &&
+                  f.lowerThirdDark > 0.38) ||
+              (f.foundationSignal >= f.wallSignal - 0.02 &&
+                  f.lowerThirdDark > 0.42 &&
+                  f.botEdgeDensity > 0.16) ||
+              (f.vegetationNear > 0.20 &&
+                  f.lowerThirdDark > 0.40 &&
+                  f.wallSignal < 0.50 &&
+                  f.midEdgeDensity < 0.22);
+          // Paint only when caption is peel-focused or peel texture is extreme —
+          // never invent paint/peel from grade soil/mulch/pipe texture variance.
+          if (!frameLooksGrade &&
+              !captionGradeOutlet &&
+              ((captionPaint && !captionFoundation) ||
+                  (f.peelingScore > 0.58 &&
+                      f.highLuminanceVariance > 0.55 &&
+                      f.wallSignal > 0.44 &&
+                      f.foundationSignal < f.wallSignal - 0.06 &&
+                      !captionWall &&
+                      !captionFoundation &&
+                      !captionRoof))) {
             bump('paint', 0.68);
             bump('peel', 0.62);
             if (f.peelingScore > 0.55 || caption.contains('flake')) {
               bump('flake', 0.50);
             }
           }
-          // Foundation crack close-ups share linear edges with walls — do not
-          // invent cladding damage when the caption is clearly grade/base.
-          if (!captionFoundation &&
+          if (!frameLooksGrade &&
               (captionWall ||
                   (f.crackLineScore > 0.40 &&
-                      f.wallSignal > 0.36 &&
+                      f.wallSignal > 0.42 &&
                       !captionRoof))) {
             bump('siding', 0.72);
             bump('wall', 0.60);
@@ -2128,6 +2371,46 @@ class ExteriorAnalysisService {
                 f.crackLineScore < 0.52) {
               bump('discoloration', 0.58);
               bump('patch', 0.52);
+            }
+          }
+          // Grade/outlet CUs: prefer drainage labels, never siding invent.
+          // Real phone outlet shots often lack "pipe" in the caption — invent
+          // soft downspout priors from wet soil / base geometry at grade.
+          if (frameLooksGrade || captionGradeOutlet) {
+            final outletGeometry =
+                f.lowerThirdDark > 0.34 &&
+                f.gutterLineScore < 0.42 &&
+                f.darkTopBias < 0.42 &&
+                (f.moistureStainScore > 0.20 ||
+                    f.vegetationNear > 0.10 ||
+                    f.darkPatchRatio > 0.08 ||
+                    f.botEdgeDensity > 0.14) &&
+                (f.foundationSignal > 0.28 ||
+                    f.wallSignal > 0.28 ||
+                    f.botEdgeDensity > 0.16);
+            final moistureAtGrade =
+                (caption.contains('moisture') ||
+                    caption.contains('wet') ||
+                    caption.contains('soil') ||
+                    caption.contains('grade') ||
+                    caption.contains('foundation')) &&
+                f.lowerThirdDark > 0.34 &&
+                f.gutterLineScore < 0.45;
+            if (caption.contains('pipe') ||
+                caption.contains('downspout') ||
+                caption.contains('outlet') ||
+                caption.contains('drain') ||
+                caption.contains('discharge') ||
+                captionGradeOutlet ||
+                outletGeometry ||
+                moistureAtGrade ||
+                f.foundationSignal > 0.46) {
+              bump('downspout', max(labels['downspout'] ?? 0, 0.64));
+              bump('pipe', max(labels['pipe'] ?? 0, 0.60));
+              bump('drain', max(labels['drain'] ?? 0, 0.54));
+              if (f.moistureStainScore > 0.22 || f.lowerThirdDark > 0.40) {
+                bump('moisture', max(labels['moisture'] ?? 0, 0.48));
+              }
             }
           }
         }
@@ -2175,8 +2458,17 @@ class ExteriorAnalysisService {
           caption.contains('grade') ||
           caption.contains('spall') ||
           caption.contains('concrete')) {
-        bump('foundation', 0.82);
-        bump('concrete', 0.70);
+        // Outlet / wet-soil captions often say "foundation" but are drainage
+        // first — keep foundation presence softer so drainage is not demoted.
+        final outletCaption =
+            caption.contains('pipe') ||
+            caption.contains('outlet') ||
+            caption.contains('discharge') ||
+            caption.contains('downspout') ||
+            caption.contains('soil') ||
+            caption.contains('wet');
+        bump('foundation', outletCaption ? 0.58 : 0.82);
+        bump('concrete', outletCaption ? 0.48 : 0.70);
         if (caption.contains('crack') || caption.contains('settlement')) {
           bump('crack', 0.70);
           bump('settling', 0.58);
@@ -2200,7 +2492,36 @@ class ExteriorAnalysisService {
         bump('peel', 0.76);
         bump('flake', 0.60);
       }
+      final captionIsGradeOutlet =
+          caption.contains('pipe') ||
+          caption.contains('outlet') ||
+          caption.contains('discharge') ||
+          caption.contains('soil') ||
+          caption.contains('mulch') ||
+          caption.contains('gravel') ||
+          (caption.contains('downspout') &&
+              (caption.contains('ground') ||
+                  caption.contains('base') ||
+                  caption.contains('end') ||
+                  caption.contains('foundation') ||
+                  caption.contains('grade')));
+      // Explicit grade / outlet captions (manifest + retake labels).
+      if (captionIsGradeOutlet ||
+          (caption.contains('moisture') &&
+              (caption.contains('foundation') ||
+                  caption.contains('grade') ||
+                  caption.contains('base') ||
+                  caption.contains('close-up') ||
+                  caption.contains('closeup')))) {
+        bump('downspout', max(labels['downspout'] ?? 0, 0.58));
+        bump('pipe', max(labels['pipe'] ?? 0, 0.54));
+        bump('drain', max(labels['drain'] ?? 0, 0.48));
+        if (caption.contains('moisture') || caption.contains('wet')) {
+          bump('moisture', max(labels['moisture'] ?? 0, 0.50));
+        }
+      }
       if (!captionIsFoundation &&
+          !captionIsGradeOutlet &&
           (caption.contains('siding') ||
               caption.contains('brick') ||
               caption.contains('cladding') ||
@@ -2361,6 +2682,25 @@ class ExteriorAnalysisService {
     /// Photo-coverage factor: more independent views → higher trust.
     final coverageFactor = (0.72 + 0.07 * min(4, photoCount)).clamp(0.72, 1.0);
 
+    final groundSceneOk = _sceneSupportsGroundDrainage(
+      features: features,
+      photos: capturePhotos,
+      labels: labels,
+    );
+    final roofSceneOk = _sceneSupportsRoofField(
+      features: features,
+      photos: capturePhotos,
+      labels: labels,
+    );
+    final roofDominantScene = _sceneIsRoofDominant(
+      features: features,
+      photos: capturePhotos,
+    );
+    final soilOnlyScene = _sceneIsSoilOnly(
+      features: features,
+      photos: capturePhotos,
+    );
+
     final candidates = <_ScoredIssue>[];
 
     // ── Roof ──────────────────────────────────────────────────────────────
@@ -2513,7 +2853,9 @@ class ExteriorAnalysisService {
         // Reserve the strong "Missing / Damaged Shingles" title for real damage
         // evidence — multi-photo aging alone must not promote to High via title.
         final hardDamageTitle =
-            (labeledRoofDamage && hardDamageLabel > 0.70 && roofDefect > 0.58) ||
+            (labeledRoofDamage &&
+                hardDamageLabel > 0.70 &&
+                roofDefect > 0.58) ||
             (roofVotes >= 2 && hardDamageLabel > 0.66 && roofDefect > 0.64) ||
             (roofDefect > 0.80 && hardDamageLabel > 0.58) ||
             (hardDamageLabel > 0.76 && roofLabel > 0.68 && roofDefect > 0.62);
@@ -2562,10 +2904,7 @@ class ExteriorAnalysisService {
         final conf = _confidence(
           presence: roofPresence,
           defect: damaged || granuleLoss || upperPlaneWear
-              ? max(
-                  roofDefect,
-                  (granuleLoss || upperPlaneWear) ? 0.55 : 0,
-                )
+              ? max(roofDefect, (granuleLoss || upperPlaneWear) ? 0.55 : 0)
               : roofPresence * 0.48,
           evidence: evidence,
           labelHits: labelHits([
@@ -2602,6 +2941,10 @@ class ExteriorAnalysisService {
         // Dual-gate severity is authoritative — labels raise Medium, not free High.
         final roofSeverity = severity;
 
+        // Pure soil/grade frames must not invent roof-field damage.
+        if (soilOnlyScene && !roofSceneOk) {
+          // skip
+        } else {
         candidates.add(
           _ScoredIssue(
             category: 'roof',
@@ -2650,6 +2993,7 @@ class ExteriorAnalysisService {
             ),
           ),
         );
+        } // soil-only scene gate
       } // end skip-weak-healthy-roof
     }
 
@@ -2664,13 +3008,13 @@ class ExteriorAnalysisService {
       'fascia',
       'rain gutter',
     ]);
-    final downspoutLabel = maxLabel([
-      'downspout',
-      'drain',
-      'pipe',
-      'outlet',
-      'discharge',
-    ]);
+    // Roof vents labeled "pipe" are not grade outlets. Keep pipe only when
+    // a real drainage-domain photo exists in the set.
+    final downspoutLabel = maxLabel(
+      groundSceneOk
+          ? const ['downspout', 'drain', 'pipe', 'outlet', 'discharge']
+          : const ['downspout', 'drain', 'outlet', 'discharge'],
+    );
     final gutterStructureLabel = max(eaveStructureLabel, downspoutLabel);
     final debrisLabel = maxLabel(['debris', 'leaf', 'clog', 'overflow']);
     final gutterLabel = max(gutterStructureLabel, debrisLabel);
@@ -2683,6 +3027,59 @@ class ExteriorAnalysisService {
       else
         0.0,
     ]);
+    // Per-photo grade vs eave strength — real house sets often mix eave + pipe photos.
+    // Computed before defect fusion so geometry-only outlet frames can fire
+    // without Vision labels (field fixture under-call fix).
+    var bestGroundFrame = 0.0;
+    var bestEaveFrame = 0.0;
+    var gradeCloseupFrames = 0;
+    for (var i = 0; i < features.length; i++) {
+      final f = features[i];
+      final photo = i < capturePhotos.length ? capturePhotos[i] : null;
+      final roofFieldOnly = photo != null &&
+          (_isRoofFieldOnlyPhoto(photo, f) ||
+              (_isRoofHostPhoto(photo, f) &&
+                  !_isGradeOutletSoilPhoto(photo, f)));
+      final groundFrame =
+          (f.lowerThirdDark * 0.38 +
+                  f.foundationSignal * 0.28 +
+                  f.moistureStainScore * 0.24 +
+                  f.botEdgeDensity * 0.18 +
+                  f.vegetationNear * 0.12 -
+                  f.gutterLineScore * 0.45 -
+                  f.darkTopBias * 0.12 -
+                  f.roofSignal * 0.10)
+              .clamp(0.0, 1.0);
+      final eaveFrame =
+          (f.gutterLineScore * 0.55 +
+                  f.horizontalBanding * 0.28 +
+                  f.darkTopBias * 0.12 +
+                  f.vegetationNear * 0.10 -
+                  f.lowerThirdDark * 0.20)
+              .clamp(0.0, 1.0);
+      if (eaveFrame > bestEaveFrame) bestEaveFrame = eaveFrame;
+      // Roof / ridge / vent frames must not contribute grade strength.
+      if (roofFieldOnly) continue;
+      if (groundFrame > bestGroundFrame) bestGroundFrame = groundFrame;
+      // Close-up grade/outlet: dark lower soil, weak roof/eave, wall or base present.
+      // Thresholds are intentionally softer than synthetic groundDischarge
+      // snapshots so real phone outlet + wet soil CUs still qualify.
+      final gradeCloseup =
+          f.lowerThirdDark > 0.30 &&
+          f.gutterLineScore < 0.46 &&
+          f.darkTopBias < 0.46 &&
+          f.roofSignal < 0.52 &&
+          (f.moistureStainScore > 0.16 ||
+              f.vegetationNear > 0.08 ||
+              f.darkPatchRatio > 0.06 ||
+              f.botEdgeDensity > 0.14) &&
+          (f.foundationSignal > 0.24 ||
+              f.wallSignal > 0.26 ||
+              f.botEdgeDensity > 0.12 ||
+              f.lowerThirdDark > 0.38);
+      if (gradeCloseup) gradeCloseupFrames++;
+    }
+
     final groundDischargePresence = _maxN([
       downspoutLabel,
       if (agg.lowerThirdDark > 0.42) agg.lowerThirdDark * 0.72 else 0.0,
@@ -2698,7 +3095,13 @@ class ExteriorAnalysisService {
         agg.botEdgeDensity * 0.55
       else
         0.0,
+      // Geometry-only grade/outlet presence (local multi-feature, no Vision).
+      if (gradeCloseupFrames >= 1 && bestGroundFrame > 0.36)
+        max(0.42, bestGroundFrame * 0.88)
+      else
+        0.0,
     ]);
+    // Combined drainage presence (eave line or ground outlet).
     final gutterPresence = _maxN([eaveLinePresence, groundDischargePresence]);
     final labeledOverflow =
         (eaveStructureLabel > 0.52 && debrisLabel > 0.45) ||
@@ -2711,7 +3114,10 @@ class ExteriorAnalysisService {
       fused.gutterDefect,
       // Vegetation + eave structure (real overflow calibration cases).
       if (eaveLinePresence > 0.34 && agg.vegetationNear > 0.24) 0.50 else 0.0,
-      if (agg.gutterLineScore > 0.38 && agg.vegetationNear > 0.22) 0.52 else 0.0,
+      if (agg.gutterLineScore > 0.38 && agg.vegetationNear > 0.22)
+        0.52
+      else
+        0.0,
       if (agg.horizontalBanding > 0.40 && agg.vegetationNear > 0.24)
         0.52
       else
@@ -2755,6 +3161,27 @@ class ExteriorAnalysisService {
         0.46
       else
         0.0,
+      // Geometry-only: wet/eroded soil + base/outlet close-up without labels.
+      // Gated so multi-angle healthy elevations with landscaping do not invent
+      // drainage findings (require grade close-up frame + weak eave plane).
+      if (gradeCloseupFrames >= 1 &&
+          bestGroundFrame > 0.34 &&
+          agg.gutterLineScore < 0.48 &&
+          bestGroundFrame >= bestEaveFrame - 0.08 &&
+          (agg.moistureStainScore > 0.16 ||
+              agg.vegetationNear > 0.08 ||
+              downspoutLabel > 0.30 ||
+              hasAny(['pipe', 'outlet', 'discharge', 'soil'])) &&
+          (agg.lowerThirdDark > 0.30 || fused.foundationPresence > 0.30))
+        0.50
+      else
+        0.0,
+      if (gradeCloseupFrames >= 2 &&
+          bestGroundFrame > 0.40 &&
+          agg.gutterLineScore < 0.42)
+        0.50
+      else
+        0.0,
     ]);
     final gutterVotes = photoVotes(
       (s) =>
@@ -2768,32 +3195,47 @@ class ExteriorAnalysisService {
     );
 
     // Ground-dominant when grade/outlet cues beat eave-line structure.
-    // Prevents white discharge pipes + wet soil from getting "clogged gutter" copy.
+    // Do not require aggregate gutterLineScore to be low — another photo may
+    // carry eave geometry while the primary evidence is pipes at grade.
+    final pipeOutletLabels =
+        downspoutLabel > 0.48 ||
+        hasAny(['pipe', 'outlet', 'discharge', 'drain']);
     final groundDominant =
-        groundDischargePresence > 0.38 &&
-        groundDischargeDefect > 0.40 &&
-        (groundDischargePresence + groundDischargeDefect) >
-            (eaveLinePresence + overflowDefect * 0.85 + 0.08) &&
-        eaveLinePresence < 0.48 &&
-        agg.gutterLineScore < 0.40;
-    final eaveOverflowClear =
-        (labeledOverflow ||
-            (overflowDefect > 0.48 &&
-                eaveLinePresence > 0.36 &&
-                (agg.vegetationNear > 0.22 || debrisLabel > 0.42) &&
-                (agg.gutterLineScore > 0.32 ||
-                    gutterVotes >= 2 ||
-                    eaveStructureLabel > 0.50))) &&
-        !groundDominant;
+        groundDischargeDefect > 0.38 &&
+        (groundDischargePresence > 0.34 || bestGroundFrame > 0.40) &&
+        (
+        // Aggregate ground strength beats eave overflow path
+        (groundDischargePresence + groundDischargeDefect + bestGroundFrame) >
+                (eaveLinePresence +
+                    overflowDefect * 0.75 +
+                    bestEaveFrame +
+                    0.04) ||
+            // Strong pipe/outlet labels without real eave structure labels
+            (pipeOutletLabels &&
+                eaveStructureLabel < 0.50 &&
+                eaveLinePresence < 0.52) ||
+            // Best frame is clearly grade-level
+            (bestGroundFrame > bestEaveFrame + 0.10 &&
+                bestGroundFrame > 0.42 &&
+                agg.gutterLineScore < 0.48) ||
+            // Geometry-only grade/outlet close-up (field fixtures, local mode)
+            (gradeCloseupFrames >= 1 &&
+                bestGroundFrame > 0.40 &&
+                eaveLinePresence < 0.48 &&
+                agg.gutterLineScore < 0.44));
 
     // Emit only with real drainage presence — not soft landscaping alone.
     final gutterEligible =
-        eaveLinePresence > 0.34 ||
+        gutterPresence > 0.34 ||
         eaveStructureLabel > 0.42 ||
         labeledOverflow ||
         (overflowDefect > 0.46 && eaveLinePresence > 0.30) ||
-        (groundDominant && groundDischargeDefect > 0.42) ||
-        (downspoutLabel > 0.48 && groundDischargePresence > 0.36);
+        (groundDominant && groundDischargeDefect > 0.38) ||
+        (downspoutLabel > 0.48 && groundDischargePresence > 0.34) ||
+        (pipeOutletLabels && bestGroundFrame > 0.44) ||
+        (gradeCloseupFrames >= 1 &&
+            groundDischargeDefect > 0.42 &&
+            bestGroundFrame > 0.40);
 
     if (gutterEligible) {
       final geometryOverflow =
@@ -2827,10 +3269,7 @@ class ExteriorAnalysisService {
             _Evidence('ground-level cues in $groundVotes photos', 0.72),
         ] else ...[
           if (fused.gutterPresence > 0.32)
-            _Evidence(
-              'gutter line along the roof edge',
-              fused.gutterPresence,
-            ),
+            _Evidence('gutter line along the roof edge', fused.gutterPresence),
           if (agg.gutterLineScore > 0.34)
             _Evidence('continuous eave / gutter shape', agg.gutterLineScore),
           if (agg.vegetationNear > 0.24)
@@ -2848,8 +3287,9 @@ class ExteriorAnalysisService {
             _Evidence('eave cues in $gutterVotes photos', 0.75),
         ],
       ];
-      final presenceForConf =
-          isGroundMode ? groundDischargePresence : eaveLinePresence;
+      final presenceForConf = isGroundMode
+          ? groundDischargePresence
+          : eaveLinePresence;
       final defectForConf = isGroundMode
           ? groundDischargeDefect
           : (isEaveOverflowMode ? overflowDefect : eaveLinePresence * 0.40);
@@ -2877,8 +3317,8 @@ class ExteriorAnalysisService {
       }
       if (isGroundMode) {
         // Ground discharge is often a zone estimate — keep confidence honest.
-        // Cap under polishVisionIssue's +2 label nudge so UI stays ≤ ~84.
-        conf = min(conf, visionMode ? 82 : 78);
+        // Cap under later label boosts (+2) so UI stays ≤ ~84.
+        conf = min(conf, visionMode ? 80 : 76);
         if (eaveLinePresence < 0.30 && downspoutLabel < 0.55) {
           conf = min(conf, 74);
         }
@@ -2896,10 +3336,21 @@ class ExteriorAnalysisService {
                   debrisLabel > 0.45 &&
                   overflowDefect > 0.44));
       final useGroundTitle =
+          groundSceneOk &&
           isGroundMode &&
-          conf >= 70 &&
-          groundDischargeDefect > 0.40;
+          conf >= 66 &&
+          groundDischargeDefect > 0.38 &&
+          (downspoutLabel > 0.34 ||
+              gradeCloseupFrames >= 1 ||
+              pipeOutletLabels ||
+              bestGroundFrame > 0.40);
 
+      // Roof-only / no grade host: stay in the roof domain. Do not mint
+      // ground-discharge or a soft drainage check from vent-pipe labels.
+      if ((isGroundMode && !groundSceneOk) ||
+          (roofDominantScene && !groundSceneOk && !isEaveOverflowMode)) {
+        // skip gutter candidate
+      } else {
       final String title;
       final String location;
       final String severity;
@@ -2946,21 +3397,30 @@ class ExteriorAnalysisService {
             : 'Check that gutters slope to outlets and water clears the foundation line';
       }
 
+      var gutterScore =
+          (presenceForConf * 0.34 +
+                  defectForConf * 0.42 +
+                  (useOverflowTitle || useGroundTitle ? 0.18 : 0) +
+                  (labeledOverflow && !isGroundMode ? 0.14 : 0) +
+                  (useGroundTitle ? 0.12 : 0) +
+                  (eaveStructureLabel > 0.55 && !isGroundMode ? 0.10 : 0) +
+                  (downspoutLabel > 0.55 && isGroundMode ? 0.10 : 0) +
+                  (gutterVotes >= 2 || groundVotes >= 2 ? 0.06 : 0) +
+                  (useOverflowTitle || useGroundTitle ? 0.08 : 0) +
+                  // Geometry-only grade/outlet frames need a score floor so
+                  // multi+mild demotion does not erase real discharge evidence.
+                  (isGroundMode && gradeCloseupFrames >= 1 ? 0.10 : 0) +
+                  (isGroundMode && pipeOutletLabels ? 0.08 : 0))
+              .clamp(0.0, 1.0);
+      if (useGroundTitle) {
+        gutterScore = max(gutterScore, 0.58);
+      }
+
       candidates.add(
         _ScoredIssue(
           category: 'gutter',
           criticality: 0.75,
-          score:
-              (presenceForConf * 0.34 +
-                      defectForConf * 0.42 +
-                      (useOverflowTitle || useGroundTitle ? 0.18 : 0) +
-                      (labeledOverflow && !isGroundMode ? 0.14 : 0) +
-                      (useGroundTitle ? 0.12 : 0) +
-                      (eaveStructureLabel > 0.55 && !isGroundMode ? 0.10 : 0) +
-                      (downspoutLabel > 0.55 && isGroundMode ? 0.10 : 0) +
-                      (gutterVotes >= 2 || groundVotes >= 2 ? 0.06 : 0) +
-                      (useOverflowTitle || useGroundTitle ? 0.08 : 0))
-                  .clamp(0.0, 1.0),
+          score: gutterScore,
           issue: AnalysisIssue(
             title: title,
             location: location,
@@ -2977,22 +3437,40 @@ class ExteriorAnalysisService {
           ),
         ),
       );
+      } // roof-dominant scene gate
     }
 
     // ── Siding / cladding ─────────────────────────────────────────────────
-    final sidingLabel = maxLabel([
+    // True cladding materials (not generic house/building — those fire on
+    // grade/outlet Quick Scans and must not mint wall-crack findings alone).
+    final claddingMaterialLabel = maxLabel([
       'siding',
-      'wall',
       'facade',
       'brick',
       'stucco',
       'vinyl',
       'clapboard',
       'masonry',
+    ]);
+    // Board/panel cladding systems — not bare brick beside a window.
+    final trueCladdingLabel = maxLabel([
+      'siding',
+      'cladding',
+      'vinyl',
+      'clapboard',
+      'fiber cement',
+      'fiber-cement',
+      'hardie',
+      'facade',
+    ]);
+    final wallStructureLabel = maxLabel([
+      'wall',
       'house',
       'building',
       'exterior',
     ]);
+    // Presence may use structure labels; crack claims need cladding or real wall.
+    final sidingLabel = max(claddingMaterialLabel, wallStructureLabel);
     final crackLabel = maxLabel([
       'crack',
       'broken',
@@ -3011,13 +3489,79 @@ class ExteriorAnalysisService {
       'plywood',
     ]);
     final sidingPresence = max(fused.wallPresence, sidingLabel * 0.9);
+    // Grade / outlet / soil / pipe / mulch frames must not invent cladding cracks.
+    final sidingGradeObjectLabel = maxLabel([
+      'pipe',
+      'drain',
+      'outlet',
+      'soil',
+      'mulch',
+      'gravel',
+      'downspout',
+      'sidewalk',
+    ]);
+    // Window / glass close-ups must not invent "siding cracks" from shatter lines.
+    final windowGlassLabel = maxLabel([
+      'window',
+      'glass',
+      'pane',
+      'glazing',
+      'sill',
+      'shutter',
+    ]);
+    final glassSceneDominant =
+        windowGlassLabel >= 0.55 &&
+        trueCladdingLabel < 0.52 &&
+        windowGlassLabel + 0.06 >= trueCladdingLabel &&
+        !hasAny(['siding', 'clapboard', 'vinyl siding', 'cladding']);
+    final sidingGradeCaptionDominant =
+        sidingGradeObjectLabel >= 0.55 &&
+        claddingMaterialLabel < 0.55 &&
+        (fused.foundationPresence + sidingGradeObjectLabel) >
+            (fused.wallPresence + claddingMaterialLabel * 0.5 + 0.05);
+    final sidingGradeFramesOnly =
+        features.isNotEmpty &&
+        features.every(
+          (f) =>
+              f.foundationSignal > 0.42 &&
+              f.wallSignal < 0.48 &&
+              f.crackLineScore < 0.50 &&
+              (f.lowerThirdDark > 0.40 ||
+                  f.botEdgeDensity > 0.18 ||
+                  f.moistureStainScore > 0.30),
+        );
+    final weakSidingOnGrade =
+        glassSceneDominant ||
+        sidingGradeFramesOnly ||
+        sidingGradeCaptionDominant ||
+        (sidingGradeObjectLabel >= 0.55 &&
+            fused.wallPresence < 0.48 &&
+            claddingMaterialLabel < 0.55 &&
+            fused.foundationPresence + sidingGradeObjectLabel >
+                fused.wallPresence + 0.10) ||
+        (fused.foundationPresence > fused.wallPresence + 0.14 &&
+            fused.wallPresence < 0.46 &&
+            claddingMaterialLabel < 0.52 &&
+            sidingGradeObjectLabel >= 0.48);
     // Clapboard courses create mid-wall edges — do not treat that as cracks
     // without real crackLineScore or crack labels.
+    // On grade-dominant frames, crack labels apply to soil/pipe — not cladding.
     final crackDefect = _maxN([
-      fused.crackDefect,
-      crackLabel * (sidingPresence > 0.40 ? 0.92 : 0.35),
-      if (agg.crackLineScore > 0.46 && fused.wallPresence > 0.40) 0.52 else 0.0,
-      if (agg.crackLineScore > 0.40 &&
+      weakSidingOnGrade ? fused.crackDefect * 0.25 : fused.crackDefect,
+      crackLabel *
+          (weakSidingOnGrade
+              ? 0.12
+              : sidingPresence > 0.40 && fused.wallPresence > 0.40
+              ? 0.92
+              : 0.35),
+      if (!weakSidingOnGrade &&
+          agg.crackLineScore > 0.46 &&
+          fused.wallPresence > 0.40)
+        0.52
+      else
+        0.0,
+      if (!weakSidingOnGrade &&
+          agg.crackLineScore > 0.40 &&
           agg.midEdgeDensity > 0.22 &&
           agg.contrast > 56 &&
           fused.wallPresence > 0.40)
@@ -3026,7 +3570,7 @@ class ExteriorAnalysisService {
         0.0,
     ]);
     final moistureDefect = _maxN([
-      fused.moistureDefect,
+      weakSidingOnGrade ? fused.moistureDefect * 0.30 : fused.moistureDefect,
       maxLabel([
         'mold',
         'mildew',
@@ -3036,21 +3580,26 @@ class ExteriorAnalysisService {
         'water damage',
         'efflorescence',
         'damp',
-      ]),
+      ]) *
+          (weakSidingOnGrade ? 0.20 : 1.0),
       // Prefer lower-wall moisture, not global green (trees).
       // Note: bare "discoloration" is handled by patch/mismatch path below so
       // white replacement boards are not forced into moisture staining.
-      if (agg.moistureStainScore > 0.32 && agg.greenDominance < 0.45)
+      if (!weakSidingOnGrade &&
+          agg.moistureStainScore > 0.32 &&
+          agg.greenDominance < 0.45)
         0.44
       else
         0.0,
-      if (agg.lowerThirdDark > 0.32 &&
+      if (!weakSidingOnGrade &&
+          agg.lowerThirdDark > 0.32 &&
           agg.greenDominance > 0.10 &&
           agg.greenDominance < 0.42)
         0.38
       else
         0.0,
-      if (agg.darkPatchRatio > 0.20 &&
+      if (!weakSidingOnGrade &&
+          agg.darkPatchRatio > 0.20 &&
           fused.wallPresence > 0.36 &&
           agg.moistureStainScore > 0.28)
         0.36
@@ -3059,21 +3608,29 @@ class ExteriorAnalysisService {
     ]);
     // Color-block / replacement-board signal (white patches on weathered walls).
     final patchDefect = _maxN([
-      patchLabel * (sidingPresence > 0.40 ? 0.95 : 0.40),
-      if (agg.highLuminanceVariance > 0.58 &&
+      patchLabel *
+          (weakSidingOnGrade
+              ? 0.12
+              : sidingPresence > 0.40
+              ? 0.95
+              : 0.40),
+      if (!weakSidingOnGrade &&
+          agg.highLuminanceVariance > 0.58 &&
           fused.wallPresence > 0.46 &&
           agg.peelingScore < 0.48)
         0.58
       else
         0.0,
-      if (agg.highLuminanceVariance > 0.52 &&
+      if (!weakSidingOnGrade &&
+          agg.highLuminanceVariance > 0.52 &&
           agg.midEdgeDensity > 0.18 &&
           fused.wallPresence > 0.44 &&
           agg.peelingScore < 0.46)
         0.48
       else
         0.0,
-      if (agg.darkPatchRatio > 0.14 &&
+      if (!weakSidingOnGrade &&
+          agg.darkPatchRatio > 0.14 &&
           agg.highLuminanceVariance > 0.50 &&
           fused.wallPresence > 0.44)
         0.42
@@ -3082,33 +3639,42 @@ class ExteriorAnalysisService {
     ]);
     final wallVotes = photoVotes(
       (s) =>
-          s.crackDefect > 0.34 ||
-          s.moistureDefect > 0.34 ||
-          s.wallPresence > 0.45,
+          !weakSidingOnGrade &&
+          (s.crackDefect > 0.34 ||
+              s.moistureDefect > 0.34 ||
+              s.wallPresence > 0.45),
     );
     final patchVotes = photoVotes(
       (s) =>
+          !weakSidingOnGrade &&
           s.wallPresence > 0.42 &&
-          (s.peelDefect > 0.28 || s.crackDefect > 0.28 || s.wallPresence > 0.50),
+          (s.peelDefect > 0.28 ||
+              s.crackDefect > 0.28 ||
+              s.wallPresence > 0.50),
     );
 
     final wallColorBlock =
+        !weakSidingOnGrade &&
         fused.wallPresence > 0.44 &&
         agg.highLuminanceVariance > 0.54 &&
         agg.peelingScore < 0.50;
 
-    if (sidingPresence > 0.38 ||
-        crackDefect > 0.48 ||
-        moistureDefect > 0.46 ||
-        patchDefect > 0.46 ||
-        wallColorBlock) {
+    if (!weakSidingOnGrade &&
+        (sidingPresence > 0.38 ||
+            crackDefect > 0.48 ||
+            moistureDefect > 0.46 ||
+            patchDefect > 0.46 ||
+            wallColorBlock)) {
       // Prefer true wall cracks over generic "damage/crack" labels that also
       // apply to roofs/foundations — require linear crack structure, not just
       // clapboard edges or paint patch variance.
       // When the frame is roof-dominated, do not invent cladding cracks.
       // Guided wall captions/labels override roof-dominated suppression.
       final wallLabelBacked =
-          sidingLabel > 0.60 || crackLabel >= 0.55 || patchLabel >= 0.50;
+          claddingMaterialLabel > 0.55 ||
+          (wallStructureLabel > 0.60 && fused.wallPresence > 0.46) ||
+          crackLabel >= 0.55 ||
+          patchLabel >= 0.50;
       final foundationLabelCtx =
           maxLabel([
             'foundation',
@@ -3119,11 +3685,12 @@ class ExteriorAnalysisService {
             'honeycomb',
           ]) >
           0.58;
-      // Crack labels from foundation CUs must not invent cladding damage.
+      // Crack labels from foundation / grade CUs must not invent cladding damage.
+      // Use cladding materials (not house/building) so grade+house tags stay blocked.
       final foundationCrackContext =
-          foundationLabelCtx &&
-          hasAny(['crack', 'settling', 'settlement', 'fracture']) &&
-          sidingLabel < 0.58;
+          (foundationLabelCtx || sidingGradeObjectLabel >= 0.55) &&
+          hasAny(['crack', 'settling', 'settlement', 'fracture', 'chip']) &&
+          claddingMaterialLabel < 0.58;
       final roofDominated =
           !wallLabelBacked &&
           ((fused.roofPresence > 0.48 && fused.wallPresence < 0.48) ||
@@ -3144,13 +3711,18 @@ class ExteriorAnalysisService {
           wallVotes >= 2 &&
           agg.peelingScore < 0.36 &&
           fused.roofPresence < 0.42;
+      // Label cracks need cladding language or strong wall plane — never house
+      // alone on a grade/outlet frame (chip/crack tags on soil/mulch).
       final labelCracked =
           !foundationCrackContext &&
-          sidingLabel > 0.58 &&
           crackLabel >= 0.55 &&
           crackDefect > 0.42 &&
           (agg.crackLineScore > 0.34 || crackLabel >= 0.65) &&
-          (fused.wallPresence > 0.40 || sidingLabel > 0.70);
+          fused.wallPresence > 0.42 &&
+          (claddingMaterialLabel > 0.55 ||
+              (wallStructureLabel > 0.58 &&
+                  fused.wallPresence > 0.48 &&
+                  claddingMaterialLabel >= 0.40));
       final cracked = geometryCracked || labelCracked;
       // Mismatched / patched siding — obvious color-block replacement boards.
       // Do not invent from mild clapboard variance alone.
@@ -3166,12 +3738,13 @@ class ExteriorAnalysisService {
           agg.crackLineScore < 0.54 &&
           (agg.midEdgeDensity > 0.16 ||
               patchLabel >= 0.45 ||
-              sidingLabel > 0.55) &&
+              claddingMaterialLabel > 0.55) &&
           (wallVotes >= 1 || photoCount == 1);
       final labelPatched =
           !foundationCrackContext &&
           !cracked &&
-          sidingLabel > 0.50 &&
+          (claddingMaterialLabel > 0.48 ||
+              (wallStructureLabel > 0.50 && fused.wallPresence > 0.42)) &&
           patchLabel >= 0.48 &&
           fused.wallPresence > 0.38 &&
           (agg.highLuminanceVariance > 0.40 ||
@@ -3190,15 +3763,16 @@ class ExteriorAnalysisService {
           !patched &&
           !roofDominated &&
           moistureDefect > 0.48 &&
+          fused.wallPresence > 0.42 &&
           (agg.moistureStainScore > 0.36 ||
               maxLabel(['mold', 'mildew', 'algae', 'stain']) > 0.45);
-      // Soft condition review only with clear wall language — not generic house.
+      // Soft condition review only with clear cladding language — not generic house.
       final reviewOnly =
           !cracked &&
           !patched &&
           !moisture &&
           sidingPresence > 0.50 &&
-          sidingLabel > 0.55 &&
+          claddingMaterialLabel > 0.55 &&
           fused.wallPresence > 0.45 &&
           agg.overallDistress > 0.28 &&
           !(agg.overallDistress < 0.32 && photoCount >= 3);
@@ -3422,7 +3996,9 @@ class ExteriorAnalysisService {
         0.0,
     ]);
     final wiringVotes = photoVotes(
-      (s) => s.wallPresence > 0.48 && (s.crackDefect > 0.20 || s.wallPresence > 0.55),
+      (s) =>
+          s.wallPresence > 0.48 &&
+          (s.crackDefect > 0.20 || s.wallPresence > 0.55),
     );
     final labelWiring =
         wiringLabel >= 0.48 &&
@@ -3510,55 +4086,120 @@ class ExteriorAnalysisService {
     }
 
     // ── Paint ─────────────────────────────────────────────────────────────
-    // Medium "Peeling / Failing Exterior Paint" needs real peel texture or
-    // strong paint/peel labels. Healthy elevations often have wall luminance
-    // variance that is not film failure — do not invent Medium peel.
+    // Medium "Peeling / Failing Exterior Paint" needs clear coating failure on
+    // walls / trim / fascia — never invent peel from wet soil, pipe, mulch, or
+    // grade-only close-ups. Prefer dropping weak paint over false positives.
     final paintLabel = maxLabel([
       'paint',
-      'peel',
       'coating',
       'varnish',
-      'trim',
+      'peel',
       'flake',
       'blister',
     ]);
-    final peelWordLabel = maxLabel(['peel', 'flake', 'blister', 'chip']);
+    // Bare "chip" alone is mulch/wood-chip noise — only count with paint language.
+    final peelCoreLabel = maxLabel(['peel', 'flake', 'blister']);
+    final chipLabel = maxLabel(['chip']);
+    final peelWordLabel = max(
+      peelCoreLabel,
+      (paintLabel >= 0.55 && chipLabel >= 0.50) ? chipLabel * 0.85 : 0.0,
+    );
+    // Wall / trim / fascia structure that can legitimately host coating failure.
+    final paintHostLabel = maxLabel([
+      'wall',
+      'siding',
+      'cladding',
+      'trim',
+      'fascia',
+      'clapboard',
+      'brick',
+      'house',
+      'building',
+    ]);
+    final gradeObjectLabel = maxLabel([
+      'pipe',
+      'drain',
+      'outlet',
+      'soil',
+      'mulch',
+      'gravel',
+      'downspout',
+      'sidewalk',
+    ]);
+    final wallPaintHost =
+        fused.wallPresence > 0.40 ||
+        (paintHostLabel > 0.55 && fused.wallPresence > 0.30);
     final peelDefect = _maxN([
-      fused.peelDefect,
-      // Peel-word labels only count with wall presence.
-      peelWordLabel * (fused.wallPresence > 0.36 ? 0.90 : 0.35),
-      // Texture peel needs a high peelingScore — not modest variance alone.
-      if (agg.peelingScore > 0.50 && fused.wallPresence > 0.36) 0.52 else 0.0,
+      // Geometry peel only counts on wall/trim frames — not grade soil texture.
+      wallPaintHost ? fused.peelDefect : fused.peelDefect * 0.35,
+      // Peel-word labels only count with wall / coating host presence.
+      peelWordLabel * (wallPaintHost ? 0.90 : 0.22),
+      // Texture peel needs a high peelingScore on a real wall plane.
+      if (agg.peelingScore > 0.50 && wallPaintHost && fused.wallPresence > 0.40)
+        0.52
+      else
+        0.0,
       // Luminance variance alone is weak (shadows, windows, texture).
       if (agg.peelingScore > 0.42 &&
           agg.highLuminanceVariance > 0.62 &&
           agg.contrast > 50 &&
-          fused.wallPresence > 0.40)
+          wallPaintHost &&
+          fused.wallPresence > 0.42)
         0.38
       else
         0.0,
     ]);
     final paintVotes = photoVotes(
-      (s) => s.peelDefect > 0.42 || (s.peelDefect > 0.34 && s.wallPresence > 0.45),
+      (s) =>
+          s.peelDefect > 0.42 &&
+          s.wallPresence > 0.40 &&
+          // Per-photo: do not count grade-dominant frames as paint votes.
+          !(s.foundationPresence > s.wallPresence + 0.12 &&
+              s.peelDefect < 0.50),
     );
     // Wall-caption / siding-primary frames often have peel-like texture that
     // is cladding variance, not film failure — require paint language.
     final wallCaptionDominant =
         maxLabel(['wall', 'siding', 'cladding', 'brick']) > 0.58 &&
-        !hasAny(['peel', 'paint', 'flake', 'blister', 'film']);
+        !hasAny(['peel', 'paint', 'flake', 'blister', 'film', 'coating']);
     // Foundation CUs with spall/moisture texture must not invent paint peel.
     final foundationCaptionDominant =
         maxLabel(['foundation', 'concrete', 'settlement', 'settling']) > 0.58 &&
         paintLabel < 0.55;
+    // Grade / outlet / soil / vegetation close-ups must not mint paint peel.
+    final gradeCaptionDominant =
+        gradeObjectLabel >= 0.55 &&
+        paintLabel < 0.62 &&
+        peelWordLabel < 0.55 &&
+        (fused.foundationPresence + gradeObjectLabel) >
+            (fused.wallPresence + paintHostLabel * 0.5);
+    // Photos that are all grade-like (pipe/soil) with weak wall peel → no paint.
+    final gradeFramesOnly =
+        features.isNotEmpty &&
+        features.every(
+          (f) =>
+              f.foundationSignal > 0.42 &&
+              f.wallSignal < 0.48 &&
+              f.peelingScore < 0.42 &&
+              f.lowerThirdDark > 0.40,
+        );
+    final weakPaintOnGrade =
+        !wallPaintHost ||
+        gradeFramesOnly ||
+        (fused.foundationPresence > fused.wallPresence + 0.14 &&
+            agg.peelingScore < 0.48 &&
+            peelWordLabel < 0.55);
 
     // Emit only for real peel (Medium) or strong labeled aging — never soft
     // "Paint Film Aging" from healthy elevation texture noise alone.
     final paintEligible =
         !wallCaptionDominant &&
         !foundationCaptionDominant &&
+        !gradeCaptionDominant &&
+        !weakPaintOnGrade &&
         (peelDefect > 0.55 ||
-            (paintLabel > 0.62 && peelWordLabel > 0.50) ||
-            (paintLabel > 0.72 && peelDefect > 0.40));
+            (paintLabel > 0.62 && peelWordLabel > 0.50 && wallPaintHost) ||
+            (paintLabel > 0.72 && peelDefect > 0.40 && wallPaintHost));
 
     if (paintEligible) {
       // Medium peeling title — geometry alone is strict; labels carry real cases.
@@ -3566,37 +4207,40 @@ class ExteriorAnalysisService {
           peelDefect > 0.64 &&
           agg.peelingScore > 0.54 &&
           fused.wallPresence > 0.42 &&
+          wallPaintHost &&
           paintVotes >= 2 &&
           paintLabel > 0.35;
       final labelPeeling =
           paintLabel >= 0.68 &&
           peelWordLabel >= 0.55 &&
           peelDefect >= 0.40 &&
+          wallPaintHost &&
           (agg.peelingScore >= 0.32 || peelWordLabel >= 0.65);
       final strongSinglePeel =
           peelDefect > 0.66 &&
           agg.peelingScore > 0.55 &&
           fused.wallPresence > 0.44 &&
+          wallPaintHost &&
           paintLabel > 0.50 &&
           peelWordLabel > 0.40;
       final peeling = geometryPeeling || labelPeeling || strongSinglePeel;
 
       final evidence = <_Evidence>[
-        if (agg.peelingScore > 0.40)
+        if (agg.peelingScore > 0.40 && wallPaintHost)
+          _Evidence('patchy luminance consistent with peel', agg.peelingScore),
+        if (agg.highLuminanceVariance > 0.55 &&
+            agg.peelingScore > 0.38 &&
+            wallPaintHost)
           _Evidence(
-            'patchy luminance consistent with peel',
-            agg.peelingScore,
-          ),
-        if (agg.highLuminanceVariance > 0.55 && agg.peelingScore > 0.38)
-          _Evidence(
-            'high brightness variance on surfaces',
+            'high brightness variance on wall surfaces',
             agg.highLuminanceVariance,
           ),
         if (paintLabel > 0.4) _Evidence('paint/finish labels', paintLabel),
         if (peelWordLabel > 0.4)
           _Evidence('peel / flake labels', peelWordLabel),
-        if (paintVotes >= 2)
-          _Evidence('peel cues in $paintVotes photos', 0.78),
+        if (wallPaintHost && fused.wallPresence > 0.36)
+          _Evidence('wall / trim structure for coating', fused.wallPresence),
+        if (paintVotes >= 2) _Evidence('peel cues in $paintVotes photos', 0.78),
       ];
       var conf = _confidence(
         presence: max(fused.wallPresence, paintLabel > 0 ? paintLabel : 0.42),
@@ -3604,7 +4248,7 @@ class ExteriorAnalysisService {
             ? max(peelDefect, peelWordLabel > 0.60 ? 0.58 : 0)
             : peelDefect * 0.45,
         evidence: evidence,
-        labelHits: labelHits(['paint', 'peel', 'trim', 'coating']),
+        labelHits: labelHits(['paint', 'peel', 'coating', 'flake', 'blister']),
         photoVotes: paintVotes,
         photoCount: photoCount,
         visionMode: visionMode,
@@ -3618,12 +4262,13 @@ class ExteriorAnalysisService {
       final usePeelTitle =
           peeling &&
           conf >= 84 &&
+          wallPaintHost &&
           (peelWordLabel >= 0.52 ||
               (agg.peelingScore >= 0.54 &&
                   peelDefect >= 0.58 &&
                   paintVotes >= 2 &&
                   paintLabel > 0.40) ||
-              (visionMode && peelWordLabel >= 0.48));
+              (visionMode && peelWordLabel >= 0.48 && paintLabel >= 0.55));
 
       // Low "Paint Film Aging" only with explicit paint language — not texture.
       // Healthy multi-angle homes must not get residual Low aging notes.
@@ -3633,6 +4278,7 @@ class ExteriorAnalysisService {
           peelWordLabel < 0.45 &&
           peelDefect >= 0.42 &&
           paintVotes >= 2 &&
+          wallPaintHost &&
           fused.wallPresence > 0.42;
 
       if (usePeelTitle || useAgingTitle) {
@@ -3654,14 +4300,14 @@ class ExteriorAnalysisService {
                   ? 'Peeling / Failing Exterior Paint'
                   : 'Paint Film Aging',
               location: usePeelTitle
-                  ? 'Sun-exposed walls, trim & eaves'
+                  ? 'Sun-exposed walls, trim & fascia'
                   : 'Facade film & wood trim',
               severity: usePeelTitle ? 'Medium' : 'Low',
               cost: usePeelTitle ? '\$1,100 – \$2,900' : '\$400 – \$1,250',
               confidence: conf,
               insight: _reasonedInsight(
                 finding: usePeelTitle
-                    ? 'Failing film is indicated by peel-like patch variance and supporting paint language on wall surfaces.'
+                    ? 'Failing film is indicated by peel-like patch variance and supporting paint language on wall or trim surfaces.'
                     : 'Finish may be UV-aged; clear peel was not confirmed from these photos.',
                 evidence: evidence,
                 confidence: conf,
@@ -3832,8 +4478,7 @@ class ExteriorAnalysisService {
         foundationLabel > 0.60 &&
         foundationCrackLabel > 0.52 &&
         agg.crackLineScore >= 0.58;
-    final cracking =
-        geometryBackedCrack || labelBackedCrack || multiPhotoCrack;
+    final cracking = geometryBackedCrack || labelBackedCrack || multiPhotoCrack;
 
     // Emit ONLY with proven cracking, or a very strong multi-cue grade review.
     // Weak soil bands / vague base texture → no foundation finding at all.
@@ -3915,9 +4560,9 @@ class ExteriorAnalysisService {
                   strongLowerStructure &&
                   (visionMode
                       ? (foundationCrackLabel >= 0.58 ||
-                          agg.crackLineScore >= 0.56)
+                            agg.crackLineScore >= 0.56)
                       : (foundationCrackLabel >= 0.64 ||
-                          agg.crackLineScore >= 0.58))));
+                            agg.crackLineScore >= 0.58))));
       // Dual-label settlement (captions / Vision) always uses crack title.
       // Soft geometry-only candidates without the medium bar → omit.
       final useCrackTitle = crackMediumOk;
@@ -3986,8 +4631,28 @@ class ExteriorAnalysisService {
       'frame',
       'door',
       'shutter',
+      'pane',
+      'glazing',
     ]);
     final windowPresence = max(windowLabel, fused.windowPresence);
+    // Broken / shattered pane language — not cladding board cracks.
+    final glassDamageLabel = maxLabel([
+      'glass',
+      'pane',
+      'glazing',
+      'window',
+    ]);
+    final glassBreakCue =
+        hasAny([
+          'broken glass',
+          'shattered',
+          'shatter',
+          'cracked glass',
+          'broken window',
+        ]) ||
+        (glassDamageLabel >= 0.55 &&
+            hasAny(['broken', 'shatter', 'damage', 'hole']) &&
+            trueCladdingLabel < 0.50);
     // Do not treat global wall color variance (patched siding) as seal failure.
     final sealDefect = _maxN([
       if (windowPresence > 0.36 &&
@@ -4005,33 +4670,44 @@ class ExteriorAnalysisService {
         0.4
       else
         0.0,
+      if (glassBreakCue) 0.62 else 0.0,
     ]);
 
-    if (windowPresence > 0.36 || windowLabel > 0.42) {
+    if (windowPresence > 0.36 || windowLabel > 0.42 || glassBreakCue) {
+      final glassDamage = glassBreakCue && glassDamageLabel >= 0.48;
       final sealRisk =
-          sealDefect > 0.38 ||
-          (windowLabel > 0.48 &&
-              hasAny([
-                'fog',
-                'condensation',
-                'leak',
-              ])) ||
-          (windowLabel > 0.55 &&
-              hasAny(['crack', 'rust', 'stain']) &&
-              agg.moistureStainScore > 0.30);
+          !glassDamage &&
+          (sealDefect > 0.38 ||
+              (windowLabel > 0.48 && hasAny(['fog', 'condensation', 'leak'])) ||
+              (windowLabel > 0.55 &&
+                  hasAny(['crack', 'rust', 'stain']) &&
+                  agg.moistureStainScore > 0.30));
       final evidence = <_Evidence>[
         if (windowLabel > 0.35)
           _Evidence('window/door objects detected', windowLabel),
         if (fused.windowPresence > 0.3)
           _Evidence('rectangular opening edge structure', fused.windowPresence),
+        if (glassDamage)
+          _Evidence('broken or damaged glazing cues', glassDamageLabel),
         if (sealRisk && agg.moistureStainScore > 0.3)
           _Evidence('staining near openings', agg.moistureStainScore),
       ];
       final conf = _confidence(
-        presence: windowPresence,
-        defect: sealRisk ? sealDefect : 0.3,
+        presence: max(windowPresence, glassDamage ? glassDamageLabel : 0),
+        defect: glassDamage
+            ? 0.58
+            : sealRisk
+            ? sealDefect
+            : 0.3,
         evidence: evidence,
-        labelHits: labelHits(['window', 'glass', 'frame', 'door']),
+        labelHits: labelHits([
+          'window',
+          'glass',
+          'frame',
+          'door',
+          'pane',
+          'broken',
+        ]),
         photoVotes: photoVotes((s) => s.windowPresence > 0.35),
         photoCount: photoCount,
         visionMode: visionMode,
@@ -4041,26 +4717,47 @@ class ExteriorAnalysisService {
       candidates.add(
         _ScoredIssue(
           category: 'window',
-          criticality: 0.65,
-          score: windowPresence + (sealRisk ? 0.15 : 0),
+          criticality: glassDamage ? 0.78 : 0.65,
+          score:
+              windowPresence +
+              (glassDamage ? 0.28 : 0) +
+              (sealRisk ? 0.15 : 0),
           issue: AnalysisIssue(
-            title: sealRisk
+            title: glassDamage
+                ? 'Broken / Damaged Window Glass'
+                : sealRisk
                 ? 'Window Seal / Flashing Concern'
                 : 'Window & Opening Inspection',
-            location: 'Sills, heads & perimeter caulk',
-            severity: sealRisk ? 'Medium' : 'Low',
-            cost: sealRisk ? '\$400 – \$1,500' : '\$180 – \$700',
+            location: glassDamage
+                ? 'Window glass, sash & frame'
+                : 'Sills, heads & perimeter caulk',
+            severity: glassDamage
+                ? 'Medium'
+                : sealRisk
+                ? 'Medium'
+                : 'Low',
+            cost: glassDamage
+                ? '\$350 – \$1,800'
+                : sealRisk
+                ? '\$400 – \$1,500'
+                : '\$180 – \$700',
             confidence: conf,
             insight: _reasonedInsight(
-              finding: sealRisk
+              finding: glassDamage
+                  ? 'Glazing damage is indicated by broken or shattered glass cues on a window opening.'
+                  : sealRisk
                   ? 'Opening distress often means failed glazing seals, open caulk, or weak flashing.'
                   : 'Openings are present without strong seal-failure cues.',
               evidence: evidence,
               confidence: conf,
-              whyItMatters: sealRisk
+              whyItMatters: glassDamage
+                  ? 'Broken glass is a safety and weather issue — water and debris can enter until the pane is secured.'
+                  : sealRisk
                   ? 'Failed seals let water into the rough opening and wall cavity — a common hidden rot path.'
                   : 'Healthy openings still need intact caulk and flashing to keep bulk water out.',
-              action: sealRisk
+              action: glassDamage
+                  ? 'Safely board or temporary-seal if needed, then schedule glass or full unit replacement with a glazier.'
+                  : sealRisk
                   ? 'Check for fogged panes and water tracks under sills — common active leak paths.'
                   : 'Verify continuous caulking and that sill pans shed water clear of cladding.',
             ),
@@ -4215,7 +4912,18 @@ class ExteriorAnalysisService {
       rustLabel,
       if (agg.rustDominance > 0.09 && agg.edgeDensity > 0.1) 0.28 else 0.0,
     ]);
-    if (rustDefect > 0.32 || agg.rustDominance > 0.11) {
+    // Soft color-only rust on grade/outlet frames is secondary to drainage —
+    // pipe elbows often read orange-brown without being the primary finding.
+    final gradeOutletContext =
+        gradeCloseupFrames >= 1 ||
+        downspoutLabel > 0.42 ||
+        (agg.lowerThirdDark > 0.36 &&
+            (hasAny(['pipe', 'outlet', 'downspout', 'discharge', 'drain']) ||
+                bestGroundFrame > 0.40));
+    final suppressSoftRustOnOutlet =
+        gradeOutletContext && rustLabel < 0.50 && agg.rustDominance < 0.24;
+    if ((rustDefect > 0.32 || agg.rustDominance > 0.11) &&
+        !suppressSoftRustOnOutlet) {
       final evidence = <_Evidence>[
         if (agg.rustDominance > 0.09)
           _Evidence(
@@ -4269,10 +4977,7 @@ class ExteriorAnalysisService {
       fused.gutterPresence,
       fasciaLabel,
       if (agg.gutterLineScore > 0.36) agg.gutterLineScore * 0.85 else 0.0,
-      if (agg.horizontalBanding > 0.40 && agg.darkTopBias > 0.28)
-        0.36
-      else
-        0.0,
+      if (agg.horizontalBanding > 0.40 && agg.darkTopBias > 0.28) 0.36 else 0.0,
     ]);
     final moistureWord = hasAny([
       'rot',
@@ -4317,8 +5022,7 @@ class ExteriorAnalysisService {
         eavePresence > 0.40 &&
         agg.moistureStainScore > 0.36;
 
-    final wetFascia =
-        geometryWetFascia || labelWetFascia || overflowBackedWet;
+    final wetFascia = geometryWetFascia || labelWetFascia || overflowBackedWet;
 
     // Emit only with clear wet proof or strong labeled eave presence.
     // Do not mint fascia findings from soft eave geometry alone on elevations.
@@ -4453,7 +5157,51 @@ class ExteriorAnalysisService {
       );
     }
 
-    if (candidates.isEmpty) {
+    final limitedVisibility = _featuresSuggestLimitedVisibility(
+      agg,
+      photoCount: photoCount,
+    );
+
+    if (limitedVisibility) {
+      // Always surface a retake note for dark / low-detail frames — even when
+      // residual texture candidates exist (they usually filter out later).
+      candidates.add(
+        const _ScoredIssue(
+          category: 'general',
+          criticality: 0.35,
+          score: 0.62,
+          issue: AnalysisIssue(
+            title: 'Limited Visibility — Closer Photo Needed',
+            location: 'Capture conditions (light / detail)',
+            severity: 'Medium',
+            cost: 'TBD',
+            confidence: 80,
+            insight:
+                'This photo is too dark, underexposed, or low-detail for a confident exterior screening. '
+                'Retake in brighter daylight with a steady, closer frame of the area of concern before treating any condition score as definitive.',
+            needsCloserPhoto: true,
+          ),
+        ),
+      );
+      // Soften other findings when the only frames are poorly lit.
+      for (var i = 0; i < candidates.length; i++) {
+        final c = candidates[i];
+        if (c.issue.title.toLowerCase().contains('limited visibility')) {
+          continue;
+        }
+        final conf = min(c.issue.confidence, 74);
+        candidates[i] = _ScoredIssue(
+          category: c.category,
+          criticality: c.criticality,
+          score: min(c.score, 0.62),
+          issue: c.issue.copyWith(
+            confidence: conf,
+            severity: c.issue.severity == 'High' ? 'Medium' : c.issue.severity,
+            needsCloserPhoto: true,
+          ),
+        );
+      }
+    } else if (candidates.isEmpty) {
       final top = labels.entries.toList()
         ..sort((a, b) => b.value.compareTo(a.value));
       final topNames = top.take(3).map((e) => e.key).join(', ');
@@ -4593,7 +5341,8 @@ class ExteriorAnalysisService {
     // (e.g. gutter labels on a drainage scenario) are not crowded out.
     // Prefer roof/gutter over foundation when upper-plane cues dominate the set.
     double sceneBoost(_ScoredIssue c) {
-      var boost = c.score + labelSupportFor(c) * 0.22 + c.issue.confidence / 500;
+      var boost =
+          c.score + labelSupportFor(c) * 0.22 + c.issue.confidence / 500;
       if (c.category == 'roof' &&
           (agg.darkTopBias > 0.32 || fused.roofDefect > 0.40)) {
         boost += 0.14 + fused.roofDefect * 0.12 + agg.darkTopBias * 0.08;
@@ -4619,6 +5368,21 @@ class ExteriorAnalysisService {
       }
       if (c.category == 'gutter' && fused.gutterPresence > 0.40) {
         boost += 0.10;
+      }
+      // Ground outlet / wet-soil drainage should lead over soft elevation noise.
+      if (c.category == 'gutter' &&
+          (c.issue.title.toLowerCase().contains('dumping') ||
+              c.issue.title.toLowerCase().contains('foundation') ||
+              c.issue.location.toLowerCase().contains('grade')) &&
+          (agg.lowerThirdDark > 0.34 || fused.foundationPresence > 0.34)) {
+        boost += 0.18;
+      }
+      // Soft color-only rust ranks below ground-outlet drainage.
+      if (c.category == 'rust' &&
+          (agg.lowerThirdDark > 0.34 || fused.foundationPresence > 0.34) &&
+          maxLabel(['pipe', 'outlet', 'downspout', 'drain', 'discharge']) >
+              0.40) {
+        boost -= 0.20;
       }
       // Obvious wall patch / color-block work should lead over opportunistic windows.
       if (c.category == 'siding' &&
@@ -4709,8 +5473,13 @@ class ExteriorAnalysisService {
 
       // Drop borderline Medium without solid score/confidence — unless labels
       // clearly support this exterior system.
+      // Limited-visibility retake notes are intentional Medium screening items.
+      final limitedVisTitle =
+          c.issue.title.toLowerCase().contains('limited visibility') ||
+          c.issue.title.toLowerCase().contains('closer photo needed');
       if (c.issue.severity == 'Medium' &&
           !labelBacked &&
+          !limitedVisTitle &&
           (c.issue.confidence < minConfMedium || c.score < minScore + 0.06)) {
         continue;
       }
@@ -4764,10 +5533,22 @@ class ExteriorAnalysisService {
       }
 
       // Prefer actionable defects over generic "review" when both exist.
+      // Limited-visibility retake notes are intentional general findings.
       if (c.category == 'general') {
-        if (filtered.isNotEmpty) continue;
-        if (c.score < 0.50 || c.issue.confidence < minConfLowKeep) continue;
+        final limitedGeneral =
+            c.issue.title.toLowerCase().contains('limited visibility') ||
+            c.issue.title.toLowerCase().contains('closer photo needed');
+        if (filtered.isNotEmpty && !limitedGeneral) continue;
+        if (limitedGeneral) {
+          if (c.score < 0.50 || c.issue.confidence < 70) continue;
+        } else if (c.score < 0.50 ||
+            c.issue.confidence < minConfLowKeep) {
+          continue;
+        }
       }
+      // Scene–category gate: no foundation-water finding without grade support.
+      if (_isGroundDrainageIssue(c.issue) && !groundSceneOk) continue;
+
       // One issue per category.
       if (filtered.any((f) => f.category == c.category)) continue;
       filtered.add(c);
@@ -4777,24 +5558,84 @@ class ExteriorAnalysisService {
     if (filtered.isEmpty && calibrated.isNotEmpty) {
       final best = calibrated.first;
       final backed = labelSupportFor(best) >= labelBackedFloor;
-      if ((best.score >= minScore || backed) &&
+      final seedOk = (best.score >= minScore || backed) &&
           best.issue.confidence >= (visionMode ? 80 : 78) &&
-          best.issue.severity != 'Low') {
+          best.issue.severity != 'Low';
+      // Never seed a foundation-water finding without a drainage-domain photo.
+      if (seedOk &&
+          !(_isGroundDrainageIssue(best.issue) && !groundSceneOk)) {
         filtered.add(best);
       }
     }
 
     // Bind each finding to the best matching capture photo + honesty flags.
-    return filtered
-        .map(
-          (c) => _bindIssueToPhoto(
-            scored: c,
-            capturePhotos: capturePhotos,
-            features: features,
-            visionBoxes: visionBoxes,
-          ),
-        )
-        .toList();
+    // Drop paint / siding when the capture set has no wall host (grade-only).
+    final bound = <AnalysisIssue>[];
+    for (final c in filtered) {
+      if (c.category == 'paint' &&
+          capturePhotos.isNotEmpty &&
+          !_hasWallTrimPaintHostPhoto(capturePhotos, features)) {
+        // Prefer no paint finding over binding soil/pipe as coating failure.
+        continue;
+      }
+      if (c.category == 'siding' &&
+          capturePhotos.isNotEmpty &&
+          !_hasWallCladdingHostPhoto(capturePhotos, features)) {
+        // Prefer no cladding finding over binding grade/pipe as siding cracks.
+        continue;
+      }
+      final issue = _bindIssueToPhoto(
+        scored: c,
+        capturePhotos: capturePhotos,
+        features: features,
+        visionBoxes: visionBoxes,
+      );
+      // Safety: paint primary must be wall/trim/fascia — never grade/outlet/soil.
+      // Unbound paint (no wall host) is dropped rather than UI-falling back to
+      // Problem close-up dirt/pipe frames.
+      if (c.category == 'paint' && capturePhotos.isNotEmpty) {
+        final pi = issue.photoIndex;
+        if (pi == null || pi < 0 || pi >= capturePhotos.length) {
+          continue;
+        }
+        final p = capturePhotos[pi];
+        final f = pi < features.length ? features[pi] : null;
+        if (_isGradeOutletSoilPhoto(p, f) || !_isWallTrimPaintHostPhoto(p, f)) {
+          continue;
+        }
+      }
+      // Safety: never keep siding pinned to a grade/outlet/soil caption.
+      if (c.category == 'siding' &&
+          capturePhotos.isNotEmpty &&
+          issue.photoIndex != null) {
+        final pi = issue.photoIndex!;
+        if (pi >= 0 && pi < capturePhotos.length) {
+          final p = capturePhotos[pi];
+          final f = pi < features.length ? features[pi] : null;
+          if (_isGradeOutletSoilPhoto(p, f)) {
+            continue;
+          }
+        }
+      }
+      if (_isGroundDrainageIssue(issue)) {
+        if (!groundSceneOk) continue;
+        if (capturePhotos.isNotEmpty) {
+          final pi = issue.photoIndex;
+          if (pi == null || pi < 0 || pi >= capturePhotos.length) {
+            // No supporting frame — drop rather than keep an unbound claim.
+            continue;
+          }
+          final p = capturePhotos[pi];
+          final f = pi < features.length ? features[pi] : null;
+          if (_isRoofFieldOnlyPhoto(p, f) ||
+              (_isRoofHostPhoto(p, f) && !_isGradeOutletSoilPhoto(p, f))) {
+            continue;
+          }
+        }
+      }
+      bound.add(issue);
+    }
+    return bound;
   }
 
   /// Prefer guided slot match, then per-photo defect signal for the category.
@@ -4821,13 +5662,36 @@ class ExteriorAnalysisService {
       scored.category,
       issue: scored.issue,
     );
-    var bestIndex = 0;
+    var bestIndex = -1;
     var bestScore = -1.0;
 
     for (var i = 0; i < capturePhotos.length; i++) {
       final photo = capturePhotos[i];
       final feat = i < features.length ? features[i] : null;
       var score = 0.0;
+      if (_isNonExteriorCapturePhoto(photo)) continue;
+
+      // Paint/siding: grade / outlet / soil frames are never evidence candidates.
+      // Device Problem close-ups of dirt/plants/pipe often win peel texture races
+      // unless we hard-veto them before slot/feature/vision boosts.
+      final gradeOutletFrame = _isGradeOutletSoilPhoto(photo, feat);
+      if ((scored.category == 'paint' || scored.category == 'siding') &&
+          gradeOutletFrame) {
+        continue;
+      }
+      // Roof / chimney must never use ground outlet / soil as primary evidence.
+      if ((scored.category == 'roof' || scored.category == 'chimney') &&
+          gradeOutletFrame) {
+        continue;
+      }
+      // Ground drainage must not bind to a roof / ridge / upper-plane frame.
+      final groundDrainIssue = scored.category == 'gutter' &&
+          _isGroundDrainageIssue(scored.issue);
+      if (groundDrainIssue &&
+          (_isRoofFieldOnlyPhoto(photo, feat) ||
+              (_isRoofHostPhoto(photo, feat) && !gradeOutletFrame))) {
+        continue;
+      }
 
       // Slot preference (strong signal from guided capture).
       final slot = photo.slotId;
@@ -4836,7 +5700,19 @@ class ExteriorAnalysisService {
         if (prefIdx >= 0) {
           score += 1.2 - (prefIdx * 0.12);
         } else if (slot == CaptureShotId.problemCloseup) {
-          score += 0.35; // close-ups help most defect types
+          // Close-ups help most defect types — wall/trim paint CUs only.
+          if (scored.category == 'paint' &&
+              !_isWallTrimPaintHostPhoto(photo, feat)) {
+            score -= 0.85;
+          } else if (scored.category == 'siding' && gradeOutletFrame) {
+            score -= 0.85;
+          } else if ((scored.category == 'roof' ||
+                  scored.category == 'chimney') &&
+              !_isRoofHostPhoto(photo, feat)) {
+            score -= 1.15;
+          } else {
+            score += 0.35;
+          }
         }
       }
 
@@ -4847,20 +5723,27 @@ class ExteriorAnalysisService {
 
       // Prefer photos with real Vision object localization for this category.
       // Structure-only (house/building) is a weak fallback for photo pick.
-      final hasSpecificBox = visionBoxes.any(
-        (b) =>
-            b.imageIndex == i &&
-            _visionBoxMatchesCategory(b, scored.category) &&
-            isSpecificObjectForCategory(b.name, scored.category) &&
-            b.score >= 0.24,
-      );
-      final hasStructureBox = visionBoxes.any(
-        (b) =>
-            b.imageIndex == i &&
-            _visionBoxMatchesCategory(b, scored.category) &&
-            isLargeStructureObject(b.name) &&
-            b.score >= 0.68,
-      );
+      // Skip Vision boosts on grade frames for paint (partial wall in outlet CUs).
+      // Vent-pipe / "roof" objects on a ridge shot must not win ground drainage.
+      final roofHostNoGrade =
+          _isRoofHostPhoto(photo, feat) && !gradeOutletFrame;
+      final hasSpecificBox = !gradeOutletFrame &&
+          !(groundDrainIssue && roofHostNoGrade) &&
+          visionBoxes.any(
+            (b) =>
+                b.imageIndex == i &&
+                _visionBoxMatchesCategory(b, scored.category) &&
+                isSpecificObjectForCategory(b.name, scored.category) &&
+                b.score >= 0.24,
+          );
+      final hasStructureBox = !gradeOutletFrame &&
+          visionBoxes.any(
+            (b) =>
+                b.imageIndex == i &&
+                _visionBoxMatchesCategory(b, scored.category) &&
+                isLargeStructureObject(b.name) &&
+                b.score >= 0.68,
+          );
       if (hasSpecificBox) {
         score += 1.85; // real object localization strongly preferred
       } else if (hasStructureBox) {
@@ -4873,19 +5756,105 @@ class ExteriorAnalysisService {
       }
       if (scored.category == 'roof' && feat != null) {
         score += feat.darkTopBias * 0.2 + feat.topEdgeDensity * 0.15;
+        if (_isRoofHostPhoto(photo, feat)) score += 0.85;
+        if (gradeOutletFrame) score -= 2.40;
+      }
+      if (groundDrainIssue) {
+        if (gradeOutletFrame) score += 1.15;
+        final caption = '${photo.label} ${photo.file.name}'.toLowerCase();
+        if (caption.contains('soil') ||
+            caption.contains('outlet') ||
+            caption.contains('discharge') ||
+            caption.contains('pipe') ||
+            caption.contains('grade')) {
+          score += 0.70;
+        }
+        if (slot == CaptureShotId.problemCloseup && !gradeOutletFrame) {
+          score += 0.20;
+        }
       }
       if ((scored.category == 'gutter' || scored.category == 'fascia') &&
           feat != null) {
         final groundDrain = _isGroundDrainageIssue(scored.issue);
         if (groundDrain) {
           // Prefer grade / outlet photos — not roof eave strips.
-          score += feat.lowerThirdDark * 0.40 +
-              feat.botEdgeDensity * 0.25 +
-              feat.moistureStainScore * 0.20;
-          score -= feat.gutterLineScore * 0.15;
-          if (slot == CaptureShotId.roof) score -= 0.45;
+          score +=
+              feat.lowerThirdDark * 0.45 +
+              feat.botEdgeDensity * 0.28 +
+              feat.moistureStainScore * 0.22 +
+              feat.foundationSignal * 0.18;
+          score -= feat.gutterLineScore * 0.35 + feat.darkTopBias * 0.15;
+          if (slot == CaptureShotId.roof) score -= 0.55;
         } else {
-          score += feat.gutterLineScore * 0.35 + feat.horizontalBanding * 0.15;
+          // Eave overflow: demote pure grade/pipe frames so they are not evidence.
+          score += feat.gutterLineScore * 0.40 + feat.horizontalBanding * 0.18;
+          if (feat.lowerThirdDark > 0.48 && feat.gutterLineScore < 0.30) {
+            score -= 0.55;
+          }
+          if (feat.foundationSignal > 0.50 && feat.gutterLineScore < 0.28) {
+            score -= 0.35;
+          }
+        }
+      }
+
+      // Paint must bind to wall / trim elevations — never soil/pipe/grade primary.
+      if (scored.category == 'paint') {
+        if (_isGradeOutletSoilPhoto(photo, feat)) {
+          score -= 2.40;
+        } else if (feat != null) {
+          score +=
+              feat.wallSignal * 0.55 +
+              feat.peelingScore * 0.70 +
+              (feat.wallSignal > 0.42 && feat.peelingScore > 0.36 ? 0.35 : 0);
+          // Soft demote pure roof fields for paint.
+          if (feat.roofSignal > 0.52 && feat.wallSignal < 0.36) {
+            score -= 0.45;
+          }
+        }
+        final caption = '${photo.label} ${photo.file.name}'.toLowerCase();
+        if (caption.contains('wall') ||
+            caption.contains('siding') ||
+            caption.contains('trim') ||
+            caption.contains('paint') ||
+            caption.contains('elevation') ||
+            caption.contains('clapboard') ||
+            caption.contains('fascia')) {
+          score += 0.55;
+        }
+      }
+
+      // Siding / cladding must bind to wall elevations — never grade/pipe primary.
+      if (scored.category == 'siding') {
+        if (_isGradeOutletSoilPhoto(photo, feat)) {
+          score -= 2.40;
+        } else if (feat != null) {
+          score +=
+              feat.wallSignal * 0.60 +
+              feat.crackLineScore * 0.35 +
+              (feat.wallSignal > 0.48 && feat.foundationSignal < feat.wallSignal
+                  ? 0.30
+                  : 0);
+          if (feat.roofSignal > 0.52 && feat.wallSignal < 0.36) {
+            score -= 0.45;
+          }
+        }
+        final caption = '${photo.label} ${photo.file.name}'.toLowerCase();
+        if (caption.contains('wall') ||
+            caption.contains('siding') ||
+            caption.contains('cladding') ||
+            caption.contains('elevation') ||
+            caption.contains('clapboard') ||
+            caption.contains('brick') ||
+            caption.contains('patch')) {
+          score += 0.55;
+        }
+        if (caption.contains('pipe') ||
+            caption.contains('soil') ||
+            caption.contains('mulch') ||
+            caption.contains('outlet') ||
+            caption.contains('discharge') ||
+            caption.contains('grade')) {
+          score -= 1.20;
         }
       }
 
@@ -4898,15 +5867,698 @@ class ExteriorAnalysisService {
       }
     }
 
+    // No eligible photo scored (e.g. paint/siding with only grade frames skipped).
+    if (bestIndex < 0) {
+      if (scored.category == 'paint') {
+        final wallIdx = _bestWallTrimPaintPhotoIndex(capturePhotos, features);
+        if (wallIdx == null) {
+          final honest = _applyHonesty(
+            issue.copyWith(photoIndex: null, sourcePhotoLabel: ''),
+          );
+          return honest.copyWith(
+            confidence: min(honest.confidence, 62),
+            insight:
+                '${honest.insight} Screening note: no clear wall/trim paint photo '
+                'was available — retake a straight-on wall or trim close-up.',
+          );
+        }
+        bestIndex = wallIdx;
+      } else if (scored.category == 'siding') {
+        final wallIdx = _bestWallCladdingPhotoIndex(capturePhotos, features);
+        if (wallIdx == null) {
+          final honest = _applyHonesty(
+            issue.copyWith(photoIndex: null, sourcePhotoLabel: ''),
+          );
+          return honest.copyWith(
+            confidence: min(honest.confidence, 62),
+            insight:
+                '${honest.insight} Screening note: no clear wall/siding photo '
+                'was available — retake a straight-on cladding elevation.',
+          );
+        }
+        bestIndex = wallIdx;
+      } else {
+        bestIndex = _fallbackPhotoIndexForCategory(
+              scored,
+              capturePhotos: capturePhotos,
+              features: features,
+            ) ??
+            -1;
+      }
+    }
+    if (bestIndex < 0) {
+      final honest = _applyHonesty(
+        issue.copyWith(photoIndex: null, sourcePhotoLabel: ''),
+      );
+      return _attachVisionHighlight(
+        honest,
+        category: scored.category,
+        visionBoxes: visionBoxes,
+        photoIndex: null,
+      );
+    }
+
     final chosen = capturePhotos[bestIndex.clamp(0, capturePhotos.length - 1)];
-    final honest = _applyHonesty(
-      issue.copyWith(photoIndex: chosen.index, sourcePhotoLabel: chosen.label),
+    final feat = bestIndex < features.length ? features[bestIndex] : null;
+
+    // Paint with only grade/outlet evidence → drop binding (no false primary).
+    // Caller filter will omit unbound weak paint; prefer honesty over mismatch.
+    if (scored.category == 'paint' &&
+        (_isGradeOutletSoilPhoto(chosen, feat) ||
+            !_isWallTrimPaintHostPhoto(chosen, feat)) &&
+        !_hasWallTrimPaintHostPhoto(capturePhotos, features)) {
+      final honest = _applyHonesty(
+        issue.copyWith(photoIndex: null, sourcePhotoLabel: ''),
+      );
+      // Mark as needs closer photo — do not pin soil/pipe as paint evidence.
+      return honest.copyWith(
+        confidence: min(honest.confidence, 62),
+        insight:
+            '${honest.insight} Screening note: no clear wall/trim paint photo '
+            'was available — retake a straight-on wall or trim close-up.',
+      );
+    }
+    // Siding with only grade/outlet evidence → drop binding (no false primary).
+    if (scored.category == 'siding' &&
+        _isGradeOutletSoilPhoto(chosen, feat) &&
+        !_hasWallCladdingHostPhoto(capturePhotos, features)) {
+      final honest = _applyHonesty(
+        issue.copyWith(photoIndex: null, sourcePhotoLabel: ''),
+      );
+      return honest.copyWith(
+        confidence: min(honest.confidence, 62),
+        insight:
+            '${honest.insight} Screening note: no clear wall/siding photo '
+            'was available — retake a straight-on cladding elevation.',
+      );
+    }
+    // If best score landed on grade but a wall host exists, force wall photo.
+    var boundIndex = bestIndex.clamp(0, capturePhotos.length - 1);
+    var boundPhoto = chosen;
+    var boundFeat = feat;
+    if (scored.category == 'paint' &&
+        (_isGradeOutletSoilPhoto(chosen, feat) ||
+            !_isWallTrimPaintHostPhoto(chosen, feat))) {
+      final wallIdx = _bestWallTrimPaintPhotoIndex(capturePhotos, features);
+      if (wallIdx != null) {
+        boundIndex = wallIdx;
+        boundPhoto = capturePhotos[wallIdx];
+        boundFeat = wallIdx < features.length ? features[wallIdx] : null;
+      }
+    }
+    if (scored.category == 'siding' &&
+        _isGradeOutletSoilPhoto(chosen, feat)) {
+      final wallIdx = _bestWallCladdingPhotoIndex(capturePhotos, features);
+      if (wallIdx != null) {
+        boundIndex = wallIdx;
+        boundPhoto = capturePhotos[wallIdx];
+        boundFeat = wallIdx < features.length ? features[wallIdx] : null;
+      }
+    }
+    if ((scored.category == 'roof' || scored.category == 'chimney') &&
+        !_isRoofHostPhoto(boundPhoto, boundFeat)) {
+      final roofIdx = _bestRoofHostPhotoIndex(capturePhotos, features);
+      if (roofIdx != null) {
+        boundIndex = roofIdx;
+        boundPhoto = capturePhotos[roofIdx];
+        boundFeat = roofIdx < features.length ? features[roofIdx] : null;
+      }
+    }
+    if (scored.category == 'gutter' &&
+        _isGroundDrainageIssue(issue) &&
+        (_isRoofFieldOnlyPhoto(boundPhoto, boundFeat) ||
+            (_isRoofHostPhoto(boundPhoto, boundFeat) &&
+                !_isGradeOutletSoilPhoto(boundPhoto, boundFeat)))) {
+      final gradeIdx = _bestGradeDrainagePhotoIndex(capturePhotos, features);
+      if (gradeIdx != null) {
+        boundIndex = gradeIdx;
+        boundPhoto = capturePhotos[gradeIdx];
+        boundFeat = gradeIdx < features.length ? features[gradeIdx] : null;
+      }
+    }
+
+    // Prefer a same-category Vision object box on a valid host photo.
+    final visionIdx = _visionLocalizedHostIndex(
+      scored: scored,
+      capturePhotos: capturePhotos,
+      features: features,
+      visionBoxes: visionBoxes,
     );
-    return _attachVisionHighlight(
+    if (visionIdx != null) {
+      final vPhoto = capturePhotos[visionIdx];
+      final vFeat =
+          visionIdx < features.length ? features[visionIdx] : null;
+      final currentHasBox = visionBoxes.any(
+        (b) =>
+            b.imageIndex == boundIndex &&
+            _visionBoxMatchesCategory(b, scored.category) &&
+            isSpecificObjectForCategory(b.name, scored.category),
+      );
+      if (!currentHasBox) {
+        boundIndex = visionIdx;
+        boundPhoto = vPhoto;
+        boundFeat = vFeat;
+      }
+    }
+
+    // Vision vent-pipe / ridge boxes must not keep ground drainage on a roof.
+    if (scored.category == 'gutter' &&
+        _isGroundDrainageIssue(issue) &&
+        (_isRoofFieldOnlyPhoto(boundPhoto, boundFeat) ||
+            (_isRoofHostPhoto(boundPhoto, boundFeat) &&
+                !_isGradeOutletSoilPhoto(boundPhoto, boundFeat)))) {
+      final gradeIdx = _bestGradeDrainagePhotoIndex(capturePhotos, features);
+      if (gradeIdx != null) {
+        boundIndex = gradeIdx;
+        boundPhoto = capturePhotos[gradeIdx];
+        boundFeat = gradeIdx < features.length ? features[gradeIdx] : null;
+      }
+    }
+    if ((scored.category == 'roof' || scored.category == 'chimney') &&
+        !_isRoofHostPhoto(boundPhoto, boundFeat)) {
+      final roofIdx = _bestRoofHostPhotoIndex(capturePhotos, features);
+      if (roofIdx != null) {
+        boundIndex = roofIdx;
+        boundPhoto = capturePhotos[roofIdx];
+        boundFeat = roofIdx < features.length ? features[roofIdx] : null;
+      }
+    }
+
+    // If primary evidence photo is grade/pipe-like, reclassify eave overflow copy.
+    final aligned = scored.category == 'gutter'
+        ? _alignDrainageIssueToPhoto(issue, boundFeat, boundPhoto)
+        : issue;
+    final bound = aligned.copyWith(
+      photoIndex: boundIndex,
+      sourcePhotoLabel: boundPhoto.label,
+    );
+    final honest = _applyHonesty(bound);
+    final withBox = _attachVisionHighlight(
       honest,
       category: scored.category,
       visionBoxes: visionBoxes,
-      photoIndex: chosen.index,
+      photoIndex: boundIndex,
+    );
+    // Zone-only drainage: cap confidence — do not invent tight-object certainty.
+    if (scored.category == 'gutter' &&
+        !withBox.hasLocalizedHighlight &&
+        withBox.confidence > 78) {
+      return withBox.copyWith(confidence: 78);
+    }
+    // Paint still on grade / non-wall host after rebind → drop photo binding.
+    // Caller drops unbound paint so UI cannot fall back to Problem close-up soil.
+    if (scored.category == 'paint' &&
+        (_isGradeOutletSoilPhoto(boundPhoto, boundFeat) ||
+            !_isWallTrimPaintHostPhoto(boundPhoto, boundFeat))) {
+      return withBox.copyWith(
+        photoIndex: null,
+        sourcePhotoLabel: '',
+        confidence: min(withBox.confidence, 64),
+      );
+    }
+    // Siding still on grade photo after rebind attempt → drop photo binding.
+    if (scored.category == 'siding' &&
+        _isGradeOutletSoilPhoto(boundPhoto, boundFeat)) {
+      return withBox.copyWith(
+        photoIndex: null,
+        sourcePhotoLabel: '',
+        confidence: min(withBox.confidence, 64),
+      );
+    }
+    // Roof still on soil/outlet after rebind → unbind (UI rematches; never soil).
+    if ((scored.category == 'roof' || scored.category == 'chimney') &&
+        _isGradeOutletSoilPhoto(boundPhoto, boundFeat)) {
+      return withBox.copyWith(
+        photoIndex: null,
+        sourcePhotoLabel: '',
+      );
+    }
+    // Person / indoor frames are never primary evidence.
+    if (_isNonExteriorCapturePhoto(boundPhoto)) {
+      return withBox.copyWith(
+        photoIndex: null,
+        sourcePhotoLabel: '',
+      );
+    }
+    return withBox;
+  }
+
+  /// True when a capture looks like ground outlet / soil / pipe (not wall paint).
+  ///
+  /// Device Problem close-ups often use the generic "Problem close-up" label with
+  /// dirt, plants, and downspout pipe in frame — geometry must catch those.
+  bool _isGradeOutletSoilPhoto(CapturePhoto photo, _ImageFeatures? feat) {
+    // Pure roof / shingle / ridge / vent frames are never grade hosts —
+    // vent "pipe" in a filename or Vision box must not flip the domain.
+    if (_isRoofFieldCaptionWithoutGrade(photo) &&
+        (feat == null ||
+            (feat.foundationSignal < 0.36 && feat.lowerThirdDark < 0.40))) {
+      return false;
+    }
+    if (photo.slotId == CaptureShotId.roof &&
+        (feat == null ||
+            (feat.roofSignal > 0.44 &&
+                feat.foundationSignal < 0.36 &&
+                feat.lowerThirdDark < 0.40))) {
+      return false;
+    }
+    final caption = '${photo.label} ${photo.file.name}'.toLowerCase();
+    final captionGrade =
+        caption.contains('pipe') ||
+        caption.contains('outlet') ||
+        caption.contains('discharge') ||
+        caption.contains('grade') ||
+        caption.contains('soil') ||
+        caption.contains('mulch') ||
+        caption.contains('gravel') ||
+        caption.contains('dirt') ||
+        caption.contains('lawn') ||
+        caption.contains('downspout end') ||
+        (caption.contains('downspout') &&
+            (caption.contains('ground') ||
+                caption.contains('base') ||
+                caption.contains('foundation') ||
+                caption.contains('grade'))) ||
+        (caption.contains('foundation') &&
+            (caption.contains('wet') ||
+                caption.contains('soil') ||
+                caption.contains('outlet') ||
+                caption.contains('pipe'))) ||
+        (caption.contains('plant') &&
+            (caption.contains('ground') ||
+                caption.contains('base') ||
+                caption.contains('pipe') ||
+                caption.contains('foundation')));
+    final frameGrade = feat != null &&
+        (
+        // Classic grade outlet geometry.
+        (feat.foundationSignal > 0.42 &&
+            feat.wallSignal < 0.50 &&
+            (feat.lowerThirdDark > 0.38 ||
+                feat.botEdgeDensity > 0.16 ||
+                feat.moistureStainScore > 0.28)) ||
+        // Foundation-competitive lower frames (partial wall still visible).
+        (feat.foundationSignal >= feat.wallSignal - 0.04 &&
+            feat.lowerThirdDark > 0.42 &&
+            feat.botEdgeDensity > 0.14 &&
+            feat.wallSignal < 0.55) ||
+        // Plants / mulch / dirt close-ups with weak mid-wall plane.
+        (feat.vegetationNear > 0.18 &&
+            feat.lowerThirdDark > 0.40 &&
+            feat.wallSignal < 0.50 &&
+            feat.midEdgeDensity < 0.24) ||
+        // Bottom-heavy foundation frames without mid elevation.
+        (feat.botEdgeDensity > 0.22 &&
+            feat.foundationSignal > 0.44 &&
+            feat.wallSignal < 0.48 &&
+            feat.midEdgeDensity < feat.botEdgeDensity));
+    // Strong paint wall frame is never grade-only — wall must clearly dominate
+    // foundation/grade (soil peel texture alone must not claim wall host).
+    final frameWallPaint =
+        feat != null &&
+        feat.wallSignal > 0.52 &&
+        feat.peelingScore > 0.45 &&
+        feat.foundationSignal < feat.wallSignal - 0.10 &&
+        feat.lowerThirdDark < 0.50;
+    // Strong cladding wall frame (cracks / patch geometry) is never grade-only.
+    final frameWallCladding =
+        feat != null &&
+        feat.wallSignal > 0.52 &&
+        feat.foundationSignal < feat.wallSignal - 0.06 &&
+        feat.lowerThirdDark < 0.52 &&
+        (feat.crackLineScore > 0.40 ||
+            feat.highLuminanceVariance > 0.52 ||
+            feat.midEdgeDensity > 0.22);
+    if (frameWallPaint || frameWallCladding) return false;
+    return captionGrade || frameGrade;
+  }
+
+  /// True when photo can host paint evidence (wall / trim / fascia elevation).
+  bool _isWallTrimPaintHostPhoto(CapturePhoto photo, _ImageFeatures? feat) {
+    if (_isGradeOutletSoilPhoto(photo, feat)) return false;
+    final caption = '${photo.label} ${photo.file.name}'.toLowerCase();
+    final captionWall =
+        caption.contains('wall') ||
+        caption.contains('siding') ||
+        caption.contains('trim') ||
+        caption.contains('paint') ||
+        caption.contains('peel') ||
+        caption.contains('fascia') ||
+        caption.contains('elevation') ||
+        caption.contains('clapboard') ||
+        caption.contains('facade') ||
+        caption.contains('façade') ||
+        caption.contains('front') ||
+        caption.contains('left') ||
+        caption.contains('right') ||
+        caption.contains('rear') ||
+        // "side" in elevation labels — not "Problem close-up".
+        (caption.contains('side') && !caption.contains('close-up'));
+    if (feat == null) {
+      // Caption-only host when no pixels (rare) — require wall language.
+      return captionWall &&
+          !caption.contains('pipe') &&
+          !caption.contains('soil') &&
+          !caption.contains('outlet');
+    }
+    // Require a real wall plane; foundation-dominant lower frames are not hosts.
+    if (feat.wallSignal < 0.38) return false;
+    if (feat.foundationSignal > feat.wallSignal + 0.10 &&
+        feat.lowerThirdDark > 0.45) {
+      return false;
+    }
+    // Elevation caption or solid wall geometry.
+    return captionWall ||
+        (feat.wallSignal >= 0.44 &&
+            feat.foundationSignal < feat.wallSignal + 0.02);
+  }
+
+  bool _hasWallTrimPaintHostPhoto(
+    List<CapturePhoto> capturePhotos,
+    List<_ImageFeatures> features,
+  ) {
+    return _bestWallTrimPaintPhotoIndex(capturePhotos, features) != null;
+  }
+
+  bool _hasWallCladdingHostPhoto(
+    List<CapturePhoto> capturePhotos,
+    List<_ImageFeatures> features,
+  ) {
+    return _bestWallCladdingPhotoIndex(capturePhotos, features) != null;
+  }
+
+  int? _bestWallTrimPaintPhotoIndex(
+    List<CapturePhoto> capturePhotos,
+    List<_ImageFeatures> features,
+  ) {
+    var bestI = -1;
+    var best = -1.0;
+    for (var i = 0; i < capturePhotos.length; i++) {
+      final photo = capturePhotos[i];
+      final feat = i < features.length ? features[i] : null;
+      if (_isNonExteriorCapturePhoto(photo)) continue;
+      if (!_isWallTrimPaintHostPhoto(photo, feat)) continue;
+      var s = 0.0;
+      if (feat != null) {
+        s += feat.wallSignal * 0.6 + feat.peelingScore * 0.75;
+        // Soft boost for mid-wall plane over lower-third grade bleed.
+        if (feat.midEdgeDensity > feat.botEdgeDensity) s += 0.12;
+        if (feat.foundationSignal > feat.wallSignal) s -= 0.35;
+      }
+      final caption = photo.label.toLowerCase();
+      if (caption.contains('wall') ||
+          caption.contains('siding') ||
+          caption.contains('trim') ||
+          caption.contains('paint') ||
+          caption.contains('peel') ||
+          caption.contains('fascia') ||
+          caption.contains('elevation') ||
+          caption.contains('clapboard') ||
+          caption.contains('front') ||
+          caption.contains('left') ||
+          caption.contains('right') ||
+          caption.contains('rear') ||
+          (caption.contains('side') && !caption.contains('close-up'))) {
+        s += 0.4;
+      }
+      if (s > best) {
+        best = s;
+        bestI = i;
+      }
+    }
+    return bestI >= 0 ? bestI : null;
+  }
+
+  int? _bestWallCladdingPhotoIndex(
+    List<CapturePhoto> capturePhotos,
+    List<_ImageFeatures> features,
+  ) {
+    var bestI = -1;
+    var best = -1.0;
+    for (var i = 0; i < capturePhotos.length; i++) {
+      final photo = capturePhotos[i];
+      final feat = i < features.length ? features[i] : null;
+      if (_isNonExteriorCapturePhoto(photo)) continue;
+      if (_isGradeOutletSoilPhoto(photo, feat)) continue;
+      var s = 0.0;
+      if (feat != null) {
+        s +=
+            feat.wallSignal * 0.65 +
+            feat.crackLineScore * 0.40 +
+            feat.midEdgeDensity * 0.20;
+        if (feat.wallSignal < 0.36) continue;
+      }
+      final caption = photo.label.toLowerCase();
+      if (caption.contains('wall') ||
+          caption.contains('siding') ||
+          caption.contains('cladding') ||
+          caption.contains('elevation') ||
+          caption.contains('clapboard') ||
+          caption.contains('brick') ||
+          caption.contains('front') ||
+          caption.contains('side') ||
+          caption.contains('rear')) {
+        s += 0.45;
+      }
+      if (s > best) {
+        best = s;
+        bestI = i;
+      }
+    }
+    return bestI >= 0 ? bestI : null;
+  }
+
+  /// Roof / chimney evidence host: roof slot, roof caption, or upper-plane geometry.
+  bool _isRoofHostPhoto(CapturePhoto photo, _ImageFeatures? feat) {
+    if (_isNonExteriorCapturePhoto(photo)) return false;
+    if (_isGradeOutletSoilPhoto(photo, feat)) return false;
+    if (photo.slotId == CaptureShotId.roof) return true;
+    final caption = '${photo.label} ${photo.file.name}'.toLowerCase();
+    if (caption.contains('roof') ||
+        caption.contains('shingle') ||
+        caption.contains('ridge') ||
+        caption.contains('granule') ||
+        caption.contains('asphalt') ||
+        caption.contains('slope') ||
+        (caption.contains('eave') && !caption.contains('grade'))) {
+      return true;
+    }
+    if (feat == null) return false;
+    return feat.roofSignal > 0.44 &&
+        feat.darkTopBias > 0.22 &&
+        feat.foundationSignal < 0.38 &&
+        feat.lowerThirdDark < 0.40;
+  }
+
+  /// Pure roof-field frame — not suitable as ground-drainage primary evidence.
+  bool _isRoofFieldOnlyPhoto(CapturePhoto photo, _ImageFeatures? feat) {
+    if (_isGradeOutletSoilPhoto(photo, feat)) return false;
+    if (photo.slotId == CaptureShotId.roof &&
+        (feat == null || feat.foundationSignal < 0.36)) {
+      return true;
+    }
+    if (feat == null) return false;
+    return feat.roofSignal > 0.50 &&
+        feat.foundationSignal < 0.32 &&
+        feat.lowerThirdDark < 0.28;
+  }
+
+  int? _bestRoofHostPhotoIndex(
+    List<CapturePhoto> capturePhotos,
+    List<_ImageFeatures> features,
+  ) {
+    var bestI = -1;
+    var best = -1.0;
+    for (var i = 0; i < capturePhotos.length; i++) {
+      final photo = capturePhotos[i];
+      final feat = i < features.length ? features[i] : null;
+      if (_isNonExteriorCapturePhoto(photo)) continue;
+      if (!_isRoofHostPhoto(photo, feat)) continue;
+      var s = 0.0;
+      if (photo.slotId == CaptureShotId.roof) s += 0.80;
+      if (feat != null) {
+        s += feat.roofSignal * 0.70 + feat.darkTopBias * 0.25;
+      }
+      final caption = photo.label.toLowerCase();
+      if (caption.contains('roof') || caption.contains('shingle')) s += 0.40;
+      if (s > best) {
+        best = s;
+        bestI = i;
+      }
+    }
+    return bestI >= 0 ? bestI : null;
+  }
+
+  int? _bestGradeDrainagePhotoIndex(
+    List<CapturePhoto> capturePhotos,
+    List<_ImageFeatures> features,
+  ) {
+    var bestI = -1;
+    var best = -1.0;
+    for (var i = 0; i < capturePhotos.length; i++) {
+      final photo = capturePhotos[i];
+      final feat = i < features.length ? features[i] : null;
+      if (_isNonExteriorCapturePhoto(photo)) continue;
+      if (_isRoofFieldOnlyPhoto(photo, feat) ||
+          (_isRoofHostPhoto(photo, feat) &&
+              !_isGradeOutletSoilPhoto(photo, feat))) {
+        continue;
+      }
+      var s = 0.0;
+      if (_isGradeOutletSoilPhoto(photo, feat)) s += 1.20;
+      if (photo.slotId == CaptureShotId.problemCloseup) s += 0.45;
+      if (feat != null) {
+        s += feat.lowerThirdDark * 0.40 + feat.foundationSignal * 0.30;
+        s -= feat.roofSignal * 0.25;
+      }
+      final caption = '${photo.label} ${photo.file.name}'.toLowerCase();
+      if (caption.contains('soil') ||
+          caption.contains('outlet') ||
+          caption.contains('discharge') ||
+          caption.contains('pipe') ||
+          caption.contains('grade')) {
+        s += 0.55;
+      }
+      if (s > best) {
+        best = s;
+        bestI = i;
+      }
+    }
+    return bestI >= 0 ? bestI : null;
+  }
+
+  int? _fallbackPhotoIndexForCategory(
+    _ScoredIssue scored, {
+    required List<CapturePhoto> capturePhotos,
+    required List<_ImageFeatures> features,
+  }) {
+    if (scored.category == 'roof' || scored.category == 'chimney') {
+      return _bestRoofHostPhotoIndex(capturePhotos, features) ??
+          _firstNonGradePhotoIndex(capturePhotos, features);
+    }
+    if (scored.category == 'gutter' &&
+        _isGroundDrainageIssue(scored.issue)) {
+      return _bestGradeDrainagePhotoIndex(capturePhotos, features);
+    }
+    return _firstNonGradePhotoIndex(capturePhotos, features);
+  }
+
+  int? _firstNonGradePhotoIndex(
+    List<CapturePhoto> capturePhotos,
+    List<_ImageFeatures> features,
+  ) {
+    for (var i = 0; i < capturePhotos.length; i++) {
+      if (_isNonExteriorCapturePhoto(capturePhotos[i])) continue;
+      final feat = i < features.length ? features[i] : null;
+      if (!_isGradeOutletSoilPhoto(capturePhotos[i], feat)) return i;
+    }
+    return null;
+  }
+
+  int? _visionLocalizedHostIndex({
+    required _ScoredIssue scored,
+    required List<CapturePhoto> capturePhotos,
+    required List<_ImageFeatures> features,
+    required List<_VisionObjectBox> visionBoxes,
+  }) {
+    var bestI = -1;
+    var bestScore = -1.0;
+    for (final box in visionBoxes) {
+      if (!isSpecificObjectForCategory(box.name, scored.category)) continue;
+      if (!_visionBoxMatchesCategory(box, scored.category)) continue;
+      if (box.score < 0.24) continue;
+      final i = box.imageIndex;
+      if (i < 0 || i >= capturePhotos.length) continue;
+      final photo = capturePhotos[i];
+      final feat = i < features.length ? features[i] : null;
+      if (_isNonExteriorCapturePhoto(photo)) continue;
+      if (scored.category == 'roof' || scored.category == 'chimney') {
+        if (_isGradeOutletSoilPhoto(photo, feat)) continue;
+      }
+      if (scored.category == 'paint' &&
+          !_isWallTrimPaintHostPhoto(photo, feat)) {
+        continue;
+      }
+      if (scored.category == 'siding' &&
+          _isGradeOutletSoilPhoto(photo, feat)) {
+        continue;
+      }
+      if (scored.category == 'gutter' &&
+          _isGroundDrainageIssue(scored.issue) &&
+          (_isRoofFieldOnlyPhoto(photo, feat) ||
+              (_isRoofHostPhoto(photo, feat) &&
+                  !_isGradeOutletSoilPhoto(photo, feat)))) {
+        continue;
+      }
+      if (box.score > bestScore) {
+        bestScore = box.score;
+        bestI = i;
+      }
+    }
+    return bestI >= 0 ? bestI : null;
+  }
+
+  /// When the bound photo is ground/outlet evidence, rewrite eave overflow wording.
+  AnalysisIssue _alignDrainageIssueToPhoto(
+    AnalysisIssue issue,
+    _ImageFeatures? feat,
+    CapturePhoto photo,
+  ) {
+    if (_isGroundDrainageIssue(issue)) return issue;
+    if (_isRoofHostPhoto(photo, feat) &&
+        !_isGradeOutletSoilPhoto(photo, feat)) {
+      return issue;
+    }
+
+    final caption = '${photo.label} ${photo.file.name}'.toLowerCase();
+    final captionGround =
+        caption.contains('pipe') ||
+        caption.contains('outlet') ||
+        caption.contains('downspout') ||
+        caption.contains('discharge') ||
+        caption.contains('grade') ||
+        caption.contains('foundation') ||
+        caption.contains('soil');
+    final frameGround =
+        feat != null &&
+        feat.lowerThirdDark > 0.42 &&
+        feat.gutterLineScore < 0.36 &&
+        (feat.foundationSignal > 0.36 ||
+            feat.moistureStainScore > 0.28 ||
+            feat.botEdgeDensity > 0.16);
+    final frameEave =
+        feat != null &&
+        (feat.gutterLineScore > 0.40 ||
+            (feat.horizontalBanding > 0.40 && feat.darkTopBias > 0.22));
+
+    final shouldGround =
+        (frameGround && !frameEave) ||
+        (captionGround &&
+            (frameGround || feat == null || feat.gutterLineScore < 0.32));
+    if (!shouldGround) return issue;
+
+    final titleLow = issue.title.toLowerCase();
+    final wasOverflow =
+        titleLow.contains('overflow') ||
+        titleLow.contains('clog') ||
+        titleLow.contains('gutter');
+    if (!wasOverflow && titleLow.contains('drainage check')) {
+      // Soft drainage already ground-friendly enough if location is ground.
+      if (issue.location.toLowerCase().contains('ground') ||
+          issue.location.toLowerCase().contains('outlet')) {
+        return issue;
+      }
+    }
+
+    return issue.copyWith(
+      title: 'Water May Be Dumping Near Foundation',
+      location: 'Downspout outlets & soil at grade',
+      severity: issue.severity == 'Low' ? 'Low' : 'Medium',
+      insight:
+          'Photos look more like water leaving near the foundation than a clogged gutter at the roof edge. '
+          'This is photo screening only — a general area estimate, not a tight object box. '
+          'Recommended next step: extend outlets 4–6 ft from the house and check soil slope after rain.',
+      confidence: min(issue.confidence, 78),
     );
   }
 
@@ -5061,8 +6713,8 @@ class ExteriorAnalysisService {
 
   /// True when the finding is about water at grade / outlets, not roof-edge gutters.
   static bool _isGroundDrainageIssue(AnalysisIssue issue) {
-    final key =
-        '${issue.title} ${issue.location} ${issue.insight}'.toLowerCase();
+    final key = '${issue.title} ${issue.location} ${issue.insight}'
+        .toLowerCase();
     if (key.contains('dumping near foundation') ||
         key.contains('near foundation') ||
         key.contains('soil at grade') ||
@@ -5072,15 +6724,179 @@ class ExteriorAnalysisService {
       return true;
     }
     // Downspout/outlet language without eave/overflow claims.
-    final groundWords = key.contains('downspout') ||
+    final groundWords =
+        key.contains('downspout') ||
         key.contains('outlet') ||
         key.contains('discharge') ||
         key.contains('at grade');
-    final eaveWords = key.contains('eave') ||
+    final eaveWords =
+        key.contains('eave') ||
         key.contains('roof edge') ||
         key.contains('overflow') ||
         key.contains('clog');
     return groundWords && !eaveWords;
+  }
+
+  bool _labelHas(
+    Map<String, double> labels,
+    List<String> needles, {
+    double min = 0.34,
+  }) {
+    for (final e in labels.entries) {
+      if (e.value < min) continue;
+      final k = e.key.toLowerCase();
+      for (final n in needles) {
+        if (k == n || k.contains(n)) return true;
+      }
+    }
+    return false;
+  }
+
+  /// True when the caption is a roof field / ridge / shingle shot with no
+  /// soil / outlet / grade language.
+  bool _isRoofFieldCaptionWithoutGrade(CapturePhoto photo) {
+    final c = '${photo.label} ${photo.file.name}'.toLowerCase();
+    if (c.contains('soil') ||
+        c.contains('outlet') ||
+        c.contains('discharge') ||
+        c.contains('grade') ||
+        c.contains('mulch') ||
+        c.contains('gravel') ||
+        c.contains('dirt')) {
+      return false;
+    }
+    if (c.contains('roof & eave') || c.contains('roof and eave')) return true;
+    if (c.contains('ridge') ||
+        c.contains('shingle') ||
+        c.contains('granule') ||
+        c.contains('asphalt')) {
+      return true;
+    }
+    if (c.contains('roof') &&
+        !c.contains('gutter') &&
+        !c.contains('outlet')) {
+      return true;
+    }
+    return false;
+  }
+
+  /// Soil / grade / outlet / lower-wall support for foundation-water findings.
+  ///
+  /// Requires at least one photo in the drainage domain. Roof vents labeled
+  /// "pipe" or a downspout glimpsed on a ridge shot are not enough.
+  bool _sceneSupportsGroundDrainage({
+    required List<_ImageFeatures> features,
+    required List<CapturePhoto> photos,
+    required Map<String, double> labels,
+  }) {
+    var hasDrainageHost = false;
+    var hasNonRoofHost = photos.isEmpty;
+    for (var i = 0; i < features.length; i++) {
+      final f = features[i];
+      final photo = i < photos.length ? photos[i] : null;
+      final roofField = photo != null &&
+          (_isRoofFieldOnlyPhoto(photo, f) ||
+              (_isRoofHostPhoto(photo, f) &&
+                  !_isGradeOutletSoilPhoto(photo, f)));
+      if (roofField) continue;
+      if (photo != null) hasNonRoofHost = true;
+      if (photo != null && _isGradeOutletSoilPhoto(photo, f)) {
+        hasDrainageHost = true;
+        break;
+      }
+      // Foundation wall + lower elevation — not a roof plane.
+      if (f.foundationSignal > 0.36 &&
+          f.lowerThirdDark > 0.34 &&
+          f.roofSignal < 0.42) {
+        hasDrainageHost = true;
+        break;
+      }
+    }
+    if (hasDrainageHost) return true;
+    if (_sceneIsRoofDominant(features: features, photos: photos)) {
+      return false;
+    }
+    if (!hasNonRoofHost) return false;
+    // Labels can corroborate a non-roof host. Do not treat downspout/pipe
+    // alone as grade evidence (roof-edge downspouts, vent pipes).
+    return _labelHas(labels, const [
+      'soil',
+      'outlet',
+      'discharge',
+      'grade',
+      'mulch',
+      'gravel',
+      'foundation',
+    ]);
+  }
+
+  /// Every frame is a roof field / ridge shot with no grade host.
+  bool _sceneIsRoofDominant({
+    required List<_ImageFeatures> features,
+    required List<CapturePhoto> photos,
+  }) {
+    if (features.isEmpty) return false;
+    var roofish = 0;
+    for (var i = 0; i < features.length; i++) {
+      final f = features[i];
+      final photo = i < photos.length ? photos[i] : null;
+      if (photo != null && _isGradeOutletSoilPhoto(photo, f)) return false;
+      final roofPhoto =
+          photo != null &&
+          _isRoofHostPhoto(photo, f) &&
+          !_isGradeOutletSoilPhoto(photo, f);
+      final roofFeat =
+          f.roofSignal > 0.50 &&
+          f.foundationSignal < 0.28 &&
+          f.lowerThirdDark < 0.30;
+      if (roofPhoto || roofFeat) {
+        roofish++;
+      }
+    }
+    return roofish == features.length;
+  }
+
+  bool _sceneIsSoilOnly({
+    required List<_ImageFeatures> features,
+    required List<CapturePhoto> photos,
+  }) {
+    if (features.isEmpty) return false;
+    var grade = 0;
+    for (var i = 0; i < features.length; i++) {
+      final f = features[i];
+      final photo = i < photos.length ? photos[i] : null;
+      if (photo != null && _isRoofHostPhoto(photo, f)) return false;
+      if (f.roofSignal > 0.42 && f.darkTopBias > 0.24) return false;
+      final gradePhoto = photo != null && _isGradeOutletSoilPhoto(photo, f);
+      final gradeFeat =
+          f.foundationSignal > 0.36 &&
+          f.lowerThirdDark > 0.34 &&
+          f.roofSignal < 0.36;
+      if (gradePhoto || gradeFeat) grade++;
+    }
+    return grade == features.length;
+  }
+
+  bool _sceneSupportsRoofField({
+    required List<_ImageFeatures> features,
+    required List<CapturePhoto> photos,
+    required Map<String, double> labels,
+  }) {
+    if (_sceneIsRoofDominant(features: features, photos: photos)) return true;
+    for (var i = 0; i < features.length; i++) {
+      final f = features[i];
+      final photo = i < photos.length ? photos[i] : null;
+      if (photo != null && _isRoofHostPhoto(photo, f)) return true;
+      if (f.roofSignal > 0.42 && f.darkTopBias > 0.22) return true;
+    }
+    return _labelHas(labels, const [
+      'roof',
+      'shingle',
+      'ridge',
+      'asphalt',
+      'tile',
+      'granule',
+    ]);
   }
 
   List<CaptureShotId> _preferredSlotsForCategory(
@@ -5103,12 +6919,11 @@ class ExteriorAnalysisService {
         // Ground discharge: prefer elevations / close-ups at grade, not roof CUs.
         if (issue != null && _isGroundDrainageIssue(issue)) {
           return const [
+            CaptureShotId.problemCloseup,
             CaptureShotId.front,
             CaptureShotId.left,
             CaptureShotId.right,
             CaptureShotId.rear,
-            CaptureShotId.problemCloseup,
-            CaptureShotId.roof,
           ];
         }
         return const [
@@ -5188,11 +7003,28 @@ class ExteriorAnalysisService {
             f.botEdgeDensity * 0.35 +
             f.crackLineScore * 0.2;
       case 'siding':
-        return f.crackLineScore * 0.4 +
-            f.moistureStainScore * 0.35 +
-            f.midEdgeDensity * 0.2;
+        // Prefer mid-wall cladding; demote grade/soil frames.
+        return (f.wallSignal * 0.45 +
+                f.crackLineScore * 0.35 +
+                f.moistureStainScore * 0.20 +
+                f.midEdgeDensity * 0.15 -
+                (f.foundationSignal > 0.48 &&
+                        f.wallSignal < 0.48 &&
+                        f.lowerThirdDark > 0.40
+                    ? 0.55
+                    : 0.0))
+            .clamp(0.0, 1.5);
       case 'paint':
-        return f.peelingScore * 0.55 + f.highLuminanceVariance * 0.3;
+        // Prefer wall peel texture; demote grade/soil frames that lack peel.
+        return (f.peelingScore * 0.55 +
+                f.highLuminanceVariance * 0.22 +
+                f.wallSignal * 0.30 -
+                (f.foundationSignal > 0.48 &&
+                        f.peelingScore < 0.42 &&
+                        f.wallSignal < 0.48
+                    ? 0.55
+                    : 0.0))
+            .clamp(0.0, 1.5);
       case 'window':
         return f.edgeDensity * 0.25 + f.moistureStainScore * 0.2;
       case 'vegetation':
@@ -5204,11 +7036,47 @@ class ExteriorAnalysisService {
     }
   }
 
+  /// Dark, underexposed, or low-detail frames that should not score like a
+  /// bright multi-angle healthy elevation set.
+  static bool _featuresSuggestLimitedVisibility(
+    _ImageFeatures f, {
+    required int photoCount,
+  }) {
+    // Only demote thin coverage — multi-angle daylit sets stay honest.
+    if (photoCount > 2) return false;
+    return _isDarkCapture(f) || _isLowDetailCapture(f, photoCount: photoCount);
+  }
+
+  static bool _isDarkCapture(_ImageFeatures f) {
+    return f.brightness < 72 ||
+        (f.brightness < 92 && f.darkPatchRatio > 0.40) ||
+        (f.darkPatchRatio > 0.52 && f.brightness < 105) ||
+        (f.darkPatchRatio > 0.58 && f.contrast < 42 && f.brightness < 110);
+  }
+
+  static bool _isLowDetailCapture(
+    _ImageFeatures f, {
+    required int photoCount,
+  }) {
+    return photoCount == 1 &&
+        f.edgeDensity < 0.095 &&
+        f.contrast < 28 &&
+        f.overallDistress < 0.28 &&
+        // Daylit low-detail (weak ambiguous) is not the same as underexposed.
+        f.brightness >= 90 &&
+        f.darkPatchRatio < 0.35;
+  }
+
   /// Demote over-confident severity and flag weak evidence honestly.
   AnalysisIssue _applyHonesty(AnalysisIssue issue) {
     var severity = issue.severity;
     var conf = issue.confidence;
     var insight = issue.insight;
+    final titleLow = issue.title.toLowerCase();
+    final limitedTitle =
+        titleLow.contains('limited visibility') ||
+        titleLow.contains('closer photo needed') ||
+        titleLow.contains('retake');
 
     // Never claim High with weak confidence (screening honesty).
     if (severity == 'High' && conf < 88) {
@@ -5217,7 +7085,6 @@ class ExteriorAnalysisService {
     }
 
     // Foundation / Missing Shingles Highs need stronger confidence still.
-    final titleLow = issue.title.toLowerCase();
     if (severity == 'High' &&
         conf < 92 &&
         (titleLow.contains('foundation') ||
@@ -5229,8 +7096,16 @@ class ExteriorAnalysisService {
       conf = max(conf - 5, 64);
     }
 
+    // Zone-level ground drainage should not sound near-certain after boosts.
+    if (titleLow.contains('dumping near foundation') ||
+        (titleLow.contains('drainage check') &&
+            issue.location.toLowerCase().contains('ground'))) {
+      conf = min(conf, 84);
+    }
+
     // Soft Medium with low conf becomes Low screening note.
-    if (severity == 'Medium' && conf < 72) {
+    // Keep limited-visibility Medium so the retake CTA stays visible.
+    if (severity == 'Medium' && conf < 72 && !limitedTitle) {
       severity = 'Low';
     }
 
@@ -5254,21 +7129,25 @@ class ExteriorAnalysisService {
     }
 
     // Low "review" items with modest confidence stay screening notes.
+    // Also force closer-photo when the engine already flagged capture limits.
     final needsCloser =
+        issue.needsCloserPhoto ||
+        limitedTitle ||
         conf < 72 ||
         (severity == 'Low' &&
             conf < 80 &&
-            (issue.title.toLowerCase().contains('review') ||
-                issue.title.toLowerCase().contains('check') ||
-                issue.title.toLowerCase().contains('surface wear')));
+            (titleLow.contains('review') ||
+                titleLow.contains('check') ||
+                titleLow.contains('surface wear')));
 
     if (needsCloser) {
-      conf = min(conf, 71);
+      conf = min(conf, limitedTitle ? 71 : 71);
       const tip =
           ' Screening note: retake a sharp close-up in good light before treating this as a firm diagnosis.';
       if (!insight.contains('Needs closer photos') &&
           !insight.contains('closer photos') &&
-          !insight.contains('Screening note')) {
+          !insight.contains('Screening note') &&
+          !insight.contains('Retake in brighter')) {
         insight = insight.trimRight();
         if (!insight.endsWith('.')) insight = '$insight.';
         insight = '$insight$tip';
@@ -5420,9 +7299,7 @@ class ExteriorAnalysisService {
     final multi = photoCount >= 2;
     final hasRoofCandidate = candidates.any(
       (x) =>
-          x.category == 'roof' &&
-          x.issue.severity != 'Low' &&
-          x.score >= 0.42,
+          x.category == 'roof' && x.issue.severity != 'Low' && x.score >= 0.42,
     );
     final roofPlaneDominant =
         hasRoofCandidate &&
@@ -5462,11 +7339,11 @@ class ExteriorAnalysisService {
         if (severity == 'Medium') {
           final softMedium = !visionMode
               ? (conf < 80 ||
-                  score < 0.52 ||
-                  (crackLine < 0.42 && score < 0.62))
+                    score < 0.52 ||
+                    (crackLine < 0.42 && score < 0.62))
               : (conf < 78 ||
-                  score < 0.50 ||
-                  (crackLine < 0.40 && score < 0.58));
+                    score < 0.50 ||
+                    (crackLine < 0.40 && score < 0.58));
           if (softMedium) {
             severity = 'Low';
             conf = min(conf, 68);
@@ -5605,12 +7482,22 @@ class ExteriorAnalysisService {
 
       // Drainage Medium — demote soft eave/landscaping noise offline.
       // Keep caption/label-backed or high-score overflow (gutter calibration).
+      // Ground outlet / wet-soil dumping must NOT be demoted by multi+mild
+      // filters — that under-call is the field-fixture failure mode.
+      final groundDumpTitle =
+          c.category == 'gutter' &&
+          (title.contains('dumping near foundation') ||
+              title.contains('ground outlets') ||
+              (title.contains('drainage check') && lowerDark > 0.34));
       final gutterOverflowTitle =
           c.category == 'gutter' &&
           (title.contains('overflow') ||
               title.contains('clogging') ||
               title.contains('dumping near foundation'));
-      if (gutterOverflowTitle && severity == 'Medium' && !visionMode) {
+      if (gutterOverflowTitle &&
+          severity == 'Medium' &&
+          !visionMode &&
+          !groundDumpTitle) {
         if (multi && mild && conf < 86 && score < 0.55) {
           severity = 'Low';
           conf = min(conf, 72);
@@ -5621,8 +7508,21 @@ class ExteriorAnalysisService {
           score *= 0.52;
         }
       }
+      // Ground dump with grade evidence: keep Medium and score floor so filter keeps it.
+      if (groundDumpTitle && severity != 'High' && lowerDark > 0.34) {
+        if (severity == 'Low' && score >= 0.36) {
+          severity = 'Medium';
+        }
+        score = max(score, 0.56);
+        conf = max(conf, 78);
+      }
       // Soft Low overflow titles on mild multi without score → drop filter weight.
-      if (gutterOverflowTitle && severity == 'Low' && multi && mild && score < 0.45) {
+      if (gutterOverflowTitle &&
+          !groundDumpTitle &&
+          severity == 'Low' &&
+          multi &&
+          mild &&
+          score < 0.45) {
         score *= 0.45;
         conf = min(conf, 68);
       }
@@ -5630,6 +7530,7 @@ class ExteriorAnalysisService {
       if (c.category == 'gutter' &&
           severity == 'Low' &&
           !gutterOverflowTitle &&
+          !groundDumpTitle &&
           multi &&
           mild &&
           score < 0.48) {
@@ -5695,15 +7596,16 @@ class ExteriorAnalysisService {
         score *= 0.72;
       }
 
-
-
-      // Soft gutter on multi-angle mild scenes → Low (unless strong overflow).
+      // Soft gutter on multi-angle mild scenes → Low (unless strong overflow
+      // or ground-outlet / wet-soil dumping evidence).
       if (c.category == 'gutter' &&
           severity != 'Low' &&
           multi &&
           mild &&
           score < 0.64 &&
-          !visionMode) {
+          !visionMode &&
+          !groundDumpTitle &&
+          lowerDark < 0.40) {
         severity = 'Low';
         conf = min(conf, 74);
         score *= 0.72;
@@ -5995,12 +7897,35 @@ class ExteriorAnalysisService {
       'electrical',
       'conduit',
     ]);
-    final gutterLab = lab(const ['gutter', 'downspout', 'overflow', 'debris']);
+    // Include ground-outlet synonyms — pipe/outlet captions are drainage, not
+    // "soft gutter noise" to demote under foundation foundation labels.
+    final gutterLab = lab(const [
+      'gutter',
+      'downspout',
+      'overflow',
+      'debris',
+      'pipe',
+      'outlet',
+      'drain',
+      'discharge',
+    ]);
+    final hasGroundDumpCandidate = candidates.any((c) {
+      if (c.category != 'gutter') return false;
+      final t = c.issue.title.toLowerCase();
+      final loc = c.issue.location.toLowerCase();
+      return t.contains('dumping near foundation') ||
+          t.contains('drainage check') ||
+          loc.contains('grade') ||
+          loc.contains('ground outlet');
+    });
 
     void demoteCategory(String cat, {bool forceLow = false}) {
       for (var i = 0; i < candidates.length; i++) {
         final c = candidates[i];
         if (c.category != cat) continue;
+        // Never force-low a ground-outlet drainage finding for foundation
+        // caption competition — that was the field under-call failure.
+        if (cat == 'gutter' && hasGroundDumpCandidate) continue;
         if (c.issue.severity == 'Low' && !forceLow) continue;
         candidates[i] = _ScoredIssue(
           category: c.category,
@@ -6024,9 +7949,7 @@ class ExteriorAnalysisService {
           category: c.category,
           criticality: min(1.0, c.criticality + 0.05),
           score: min(1.0, c.score + add),
-          issue: c.issue.copyWith(
-            confidence: min(94, c.issue.confidence + 2),
-          ),
+          issue: c.issue.copyWith(confidence: min(94, c.issue.confidence + 2)),
         );
       }
     }
@@ -6037,22 +7960,32 @@ class ExteriorAnalysisService {
       demoteCategory('foundation', forceLow: true);
       demoteCategory('siding', forceLow: true);
       demoteCategory('paint', forceLow: paintLab < 0.55);
-      if (gutterLab < roofLab - 0.05) {
+      if (gutterLab < roofLab - 0.05 && !hasGroundDumpCandidate) {
         demoteCategory('gutter', forceLow: true);
       }
     }
     // Foundation-labeled CUs: demote soft roof wear invented from texture.
+    // Outlet / wet-soil drainage often shares "foundation" caption language —
+    // boost drainage when pipe/outlet labels are present instead of demoting it.
     if (foundLab >= 0.58 && roofLab < foundLab - 0.08) {
-      boostCategory('foundation', add: 0.18);
+      if (hasGroundDumpCandidate || gutterLab >= 0.52) {
+        boostCategory('gutter', add: 0.16);
+        // Soft foundation review still OK; hard crack may coexist.
+        if (gutterLab + 0.04 >= foundLab) {
+          demoteCategory('foundation', forceLow: true);
+        }
+      } else {
+        boostCategory('foundation', add: 0.18);
+      }
       demoteCategory('roof', forceLow: true);
-      if (gutterLab < foundLab - 0.05) {
+      if (gutterLab < foundLab - 0.05 &&
+          gutterLab < 0.50 &&
+          !hasGroundDumpCandidate) {
         demoteCategory('gutter', forceLow: true);
       }
     }
     // Paint / siding / gutter labeled primaries.
-    if (paintLab >= 0.58 &&
-        roofLab < 0.50 &&
-        foundLab < paintLab - 0.05) {
+    if (paintLab >= 0.58 && roofLab < 0.50 && foundLab < paintLab - 0.05) {
       boostCategory('paint', add: 0.14);
       demoteCategory('foundation', forceLow: foundLab < 0.45);
     }
@@ -6066,10 +7999,10 @@ class ExteriorAnalysisService {
       boostCategory('wiring', add: 0.16);
       demoteCategory('window', forceLow: true);
     }
-    // Only boost gutters when they are the label leader (not roof/foundation).
+    // Boost gutters when outlet/drainage labels lead or match foundation.
     if (gutterLab >= 0.55 &&
         gutterLab >= roofLab - 0.02 &&
-        gutterLab >= foundLab - 0.02) {
+        (gutterLab >= foundLab - 0.08 || hasGroundDumpCandidate)) {
       boostCategory('gutter', add: 0.12);
     }
   }
@@ -6181,9 +8114,7 @@ class ExteriorAnalysisService {
           (siding.issue.title.toLowerCase().contains('patch') ||
               siding.issue.title.toLowerCase().contains('mismatched')) &&
           siding.score >= r.score * 0.92;
-      if (siding != null &&
-          siding.score < r.score * 1.05 &&
-          !keepSidingPatch) {
+      if (siding != null && siding.score < r.score * 1.05 && !keepSidingPatch) {
         demote(siding, minScoreKeepHigh: 0.90);
       }
       if (window != null && window.score < 0.58) {
@@ -6588,8 +8519,7 @@ class ExteriorAnalysisService {
     final titleLower = issue.title.toLowerCase();
 
     // Single-photo or modest-score High → Medium (real-phone over-call fix).
-    if (severity == 'High' &&
-        (photoCount < 3 || c.score < 0.80 || conf < 90)) {
+    if (severity == 'High' && (photoCount < 3 || c.score < 0.80 || conf < 90)) {
       severity = 'Medium';
       conf = max(conf - 8, 62);
     }
@@ -6810,8 +8740,19 @@ class ExteriorAnalysisService {
     required _ImageFeatures features,
     required String source,
   }) {
+    final limitedVisibility = _featuresSuggestLimitedVisibility(
+      features,
+      photoCount: photoCount,
+    );
+
+    final darkCapture = _isDarkCapture(features);
     // Healthy baseline — multi-angle coverage adds a small quality credit.
-    var score = 95.5 + min(2.5, (photoCount - 1) * 0.45);
+    // Dark single frames start lower; low-detail daylit frames get a milder cut.
+    var score = darkCapture
+        ? 84.0 + min(2.0, (photoCount - 1) * 0.4)
+        : limitedVisibility
+        ? 90.0 + min(2.0, (photoCount - 1) * 0.4)
+        : 95.5 + min(2.5, (photoCount - 1) * 0.45);
 
     // Sort highest impact first so diminishing returns apply in order.
     final ranked = [...issues]
@@ -6946,12 +8887,12 @@ class ExteriorAnalysisService {
       score += 1.2;
     }
 
-    // Very clean photo sets stay in the upper band.
+    // Very clean photo sets stay in the upper band (not when visibility is poor).
     final onlyLow =
         issues.isNotEmpty &&
         issues.every((i) => i.severity == 'Low') &&
         features.overallDistress < 0.36;
-    if (onlyLow) score = max(score, 87.5);
+    if (onlyLow && !limitedVisibility) score = max(score, 87.5);
 
     // Floor/ceiling by worst severity for interpretability.
     if (highCount >= 2) {
@@ -6965,9 +8906,39 @@ class ExteriorAnalysisService {
       score = min(score, 79);
     }
 
-    if (issues.isEmpty ||
-        (onlyLow && features.overallDistress < 0.28 && photoCount >= 2)) {
+    if (!limitedVisibility &&
+        (issues.isEmpty ||
+            (onlyLow &&
+                features.overallDistress < 0.28 &&
+                photoCount >= 2))) {
       score = max(score, 91);
+    }
+
+    // Dark / low-detail single frames: demote overall vs healthy multi-angle.
+    if (limitedVisibility) {
+      if (darkCapture) {
+        score = min(score, 86.0);
+        if (issues.isEmpty ||
+            issues.every(
+              (i) =>
+                  i.needsCloserPhoto ||
+                  i.confidence < 72 ||
+                  i.title.toLowerCase().contains('limited visibility'),
+            )) {
+          score = min(score, 82.0);
+        }
+        if (features.brightness < 70 || features.darkPatchRatio > 0.55) {
+          score = min(score, 80.0);
+        }
+      } else {
+        // Low-detail daylit: mild demotion + retake note, stay ≥ golden weak band.
+        score = min(score, 90.0);
+        if (issues.any(
+          (i) => i.title.toLowerCase().contains('limited visibility'),
+        )) {
+          score = min(score, 88.0);
+        }
+      }
     }
 
     final overall = score.round().clamp(34, 98);
@@ -6989,7 +8960,16 @@ class ExteriorAnalysisService {
         ? ''
         : orderedIssues.first.storyTitle;
     final String label;
-    if (orderedIssues.isEmpty) {
+    if (limitedVisibility &&
+        (orderedIssues.isEmpty ||
+            orderedIssues.every(
+              (i) =>
+                  i.needsCloserPhoto ||
+                  i.title.toLowerCase().contains('limited visibility'),
+            ))) {
+      label =
+          'Limited visibility — retake in better light for a confident screening';
+    } else if (orderedIssues.isEmpty) {
       label = photoCount == 1
           ? 'Good — No elevated defects from this single angle (screening)'
           : 'Excellent — Photos suggest a strong exterior (screening)';
@@ -7001,10 +8981,10 @@ class ExteriorAnalysisService {
           : 'Good — Solid screening result with minor notes';
     } else if (overall >= 84 && high == 0) {
       label = medium >= 2
-          ? 'Fair — Plan work on $topTitle and related items (screening)'
+          ? 'Stable — Plan work on $topTitle and related items (screening)'
           : 'Good — Solid screening; plan around $topTitle';
     } else if (overall >= 72 && high == 0) {
-      label = 'Fair — Schedule $topTitle this season (screening)';
+      label = 'Stable — Schedule $topTitle this season (screening)';
     } else if (overall >= 58 || high == 1) {
       label = high > 0
           ? 'Attention needed — Prioritize $topTitle (screening)'

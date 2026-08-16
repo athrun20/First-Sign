@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Create a Play Store upload keystore + local android/key.properties for Pillar AI.
+# Create a Play Store upload keystore + local android/key.properties for First Sign.
 # Never prints or commits passwords. Run from repo root or any directory:
 #   bash android/scripts/create_upload_keystore.sh
 
@@ -24,7 +24,7 @@ find_keytool() {
 }
 
 echo ""
-echo "Pillar AI — create Play Store upload keystore"
+echo "First Sign — create Play Store upload keystore"
 echo "Android dir: $ANDROID_DIR"
 echo "Keystore:    $KEYSTORE_PATH"
 echo "Alias:       $ALIAS"
@@ -53,12 +53,12 @@ if [[ -z "$STORE_PASSWORD" || -z "$KEY_PASSWORD" ]]; then
   exit 1
 fi
 
-read -r -p "Your name / organization (CN) [Pillar AI]: " CN
-CN="${CN:-Pillar AI}"
+read -r -p "Your name / organization (CN) [First Sign]: " CN
+CN="${CN:-First Sign}"
 read -r -p "Organizational unit (OU) [Mobile]: " OU
 OU="${OU:-Mobile}"
-read -r -p "Organization (O) [Pillar AI]: " O
-O="${O:-Pillar AI}"
+read -r -p "Organization (O) [First Sign]: " O
+O="${O:-First Sign}"
 read -r -p "City (L) [New York]: " L
 L="${L:-New York}"
 read -r -p "State (ST) [NY]: " ST

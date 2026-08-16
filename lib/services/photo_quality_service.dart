@@ -5,6 +5,8 @@ import 'package:image_picker/image_picker.dart';
 
 import '../models/capture_models.dart';
 
+export '../models/capture_models.dart' show PhotoQualityResult;
+
 /// Lightweight on-device quality gates for exterior photos.
 ///
 /// Checks decodeability, resolution, and exposure — no ML required.
@@ -139,7 +141,7 @@ class PhotoQualityService {
       final small = await picture.toImage(targetW, targetH);
       picture.dispose();
 
-      final bd = await small.toByteData(format: ui.ImageByteFormat.rawRgba);
+      final bd = await small.toByteData();
       small.dispose();
       if (bd == null) return null;
 

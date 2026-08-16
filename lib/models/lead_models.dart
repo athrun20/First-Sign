@@ -95,7 +95,6 @@ class QuoteLead {
   int get overallScore => reportSnapshot.overallScore;
   String get estimatedRepairRange => reportSnapshot.estimatedRepairRange;
   int get findingsCount => reportSnapshot.issues.length;
-  int get highCount => reportSnapshot.highCount;
   bool get hasPhotos => photos.isNotEmpty;
 
   String get relativeDateLabel {

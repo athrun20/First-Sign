@@ -5,7 +5,7 @@ import 'package:pillar_ai/services/finding_retake_service.dart';
 
 void main() {
   group('FindingRetakeService', () {
-    test('maps roof findings to roof or close-up slot', () {
+    test('maps roof findings to the roof slot, not a soil close-up', () {
       const roof = AnalysisIssue(
         title: 'Missing / Damaged Shingles',
         location: 'Roof field',
@@ -27,7 +27,7 @@ void main() {
       );
       expect(
         FindingRetakeService.preferredSlot(weakRoof),
-        CaptureShotId.problemCloseup,
+        CaptureShotId.roof,
       );
     });
 

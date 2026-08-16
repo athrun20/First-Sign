@@ -1,5 +1,3 @@
-import 'dart:async' show unawaited;
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -8,6 +6,27 @@ import 'package:image_picker/image_picker.dart';
 import '../services/branding_store.dart';
 import '../services/storage_exception.dart';
 import '../theme/app_lux.dart';
+
+/// Branding tokens — aliases of [AppLux].
+abstract final class _BrandLux {
+  static const bg = AppLux.bg;
+  static const surface = AppLux.surface;
+  static const border = AppLux.border;
+  static const borderSoft = AppLux.borderSoft;
+  static const charcoal = AppLux.charcoal;
+  static const body = AppLux.body;
+  static const muted = AppLux.muted;
+  static const icon = AppLux.icon;
+  static const teal = AppLux.teal;
+  static const tealBright = AppLux.tealBright;
+  static const tealMist = AppLux.tealMist;
+  static const fieldRadius = AppLux.radius2xl;
+
+  static List<BoxShadow> softShadow = AppLux.cardShadow();
+
+  static BoxDecoration card({double radius = AppLux.radius3xl}) =>
+      AppLux.card(radius: radius);
+}
 
 /// Branding settings: company name + logo for PDF report headers.
 ///
@@ -38,7 +57,7 @@ class _BrandingScreenState extends State<BrandingScreen> {
     _nameController.addListener(() {
       if (!_dirty && mounted) setState(() => _dirty = true);
     });
-    unawaited(_loadBranding());
+    _loadBranding();
   }
 
   Future<void> _loadBranding() async {
@@ -109,7 +128,7 @@ class _BrandingScreenState extends State<BrandingScreen> {
         BrandingStore.instance.hasLogo
             ? 'Saved — logo will show in the PDF report header.'
             : 'Saved company name for PDF reports.',
-        color: AppLux.teal,
+        color: _BrandLux.teal,
       );
     } on StorageFullException catch (e) {
       if (!mounted) return;
@@ -133,23 +152,23 @@ class _BrandingScreenState extends State<BrandingScreen> {
         ? 'Your Company'
         : _nameController.text.trim();
     final bottom = MediaQuery.paddingOf(context).bottom;
-    final radius = BorderRadius.circular(AppLux.radius2xl);
+    final radius = BorderRadius.circular(_BrandLux.fieldRadius);
 
     return Scaffold(
-      backgroundColor: AppLux.bg,
+      backgroundColor: _BrandLux.bg,
       appBar: AppBar(
-        backgroundColor: AppLux.bg,
+        backgroundColor: _BrandLux.bg,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         scrolledUnderElevation: 0,
-        foregroundColor: AppLux.charcoal,
+        foregroundColor: _BrandLux.charcoal,
         title: Text(
           'PDF branding',
           style: GoogleFonts.inter(
             fontWeight: FontWeight.w600,
             fontSize: 19,
             letterSpacing: -0.4,
-            color: AppLux.charcoal,
+            color: _BrandLux.charcoal,
           ),
         ),
       ),
@@ -165,7 +184,7 @@ class _BrandingScreenState extends State<BrandingScreen> {
                   style: GoogleFonts.inter(
                     fontSize: 15,
                     height: 1.6,
-                    color: AppLux.body,
+                    color: _BrandLux.body,
                     fontWeight: FontWeight.w400,
                     letterSpacing: 0.05,
                   ),
@@ -178,7 +197,7 @@ class _BrandingScreenState extends State<BrandingScreen> {
                   style: GoogleFonts.inter(
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
-                    color: AppLux.charcoal,
+                    color: _BrandLux.charcoal,
                     letterSpacing: -0.4,
                     height: 1.2,
                   ),
@@ -189,7 +208,7 @@ class _BrandingScreenState extends State<BrandingScreen> {
                   style: GoogleFonts.inter(
                     fontSize: 13.5,
                     height: 1.45,
-                    color: AppLux.muted,
+                    color: _BrandLux.muted,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
@@ -199,18 +218,18 @@ class _BrandingScreenState extends State<BrandingScreen> {
                   child: InkWell(
                     onTap: _picking ? null : _pickLogo,
                     borderRadius: BorderRadius.circular(20),
-                    splashColor: AppLux.teal.withValues(alpha: 0.06),
+                    splashColor: _BrandLux.teal.withValues(alpha: 0.06),
                     child: Ink(
                       decoration: BoxDecoration(
-                        color: AppLux.surface,
+                        color: _BrandLux.surface,
                         borderRadius: BorderRadius.circular(20),
                         border: Border.all(
                           color: _hasLogo
-                              ? AppLux.teal.withValues(alpha: 0.35)
-                              : AppLux.border,
+                              ? _BrandLux.teal.withValues(alpha: 0.35)
+                              : _BrandLux.border,
                           width: _hasLogo ? 1.1 : 0.75,
                         ),
-                        boxShadow: AppLux.cardShadow(),
+                        boxShadow: _BrandLux.softShadow,
                       ),
                       child: Padding(
                         padding: const EdgeInsets.symmetric(
@@ -234,7 +253,7 @@ class _BrandingScreenState extends State<BrandingScreen> {
                                 width: 56,
                                 height: 56,
                                 decoration: BoxDecoration(
-                                  color: AppLux.tealMist,
+                                  color: _BrandLux.tealMist,
                                   borderRadius: BorderRadius.circular(16),
                                 ),
                                 child: Icon(
@@ -242,7 +261,7 @@ class _BrandingScreenState extends State<BrandingScreen> {
                                       ? Icons.hourglass_top_rounded
                                       : Icons.add_photo_alternate_outlined,
                                   size: 26,
-                                  color: AppLux.teal,
+                                  color: _BrandLux.teal,
                                 ),
                               ),
                             const SizedBox(height: 14),
@@ -255,7 +274,7 @@ class _BrandingScreenState extends State<BrandingScreen> {
                               style: GoogleFonts.inter(
                                 fontSize: 15.5,
                                 fontWeight: FontWeight.w700,
-                                color: AppLux.charcoal,
+                                color: _BrandLux.charcoal,
                                 letterSpacing: -0.2,
                               ),
                             ),
@@ -264,7 +283,7 @@ class _BrandingScreenState extends State<BrandingScreen> {
                               'Shown in PDF report headers',
                               style: GoogleFonts.inter(
                                 fontSize: 13,
-                                color: AppLux.muted,
+                                color: _BrandLux.muted,
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
@@ -304,7 +323,7 @@ class _BrandingScreenState extends State<BrandingScreen> {
                   style: GoogleFonts.inter(
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
-                    color: AppLux.charcoal,
+                    color: _BrandLux.charcoal,
                     letterSpacing: -0.4,
                     height: 1.2,
                   ),
@@ -315,7 +334,7 @@ class _BrandingScreenState extends State<BrandingScreen> {
                   style: GoogleFonts.inter(
                     fontSize: 13.5,
                     height: 1.45,
-                    color: AppLux.muted,
+                    color: _BrandLux.muted,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
@@ -323,27 +342,27 @@ class _BrandingScreenState extends State<BrandingScreen> {
                 TextField(
                   controller: _nameController,
                   textCapitalization: TextCapitalization.words,
-                  cursorColor: AppLux.teal,
+                  cursorColor: _BrandLux.teal,
                   cursorWidth: 1.4,
                   style: GoogleFonts.inter(
                     fontSize: 16,
                     fontWeight: FontWeight.w500,
-                    color: AppLux.charcoal,
+                    color: _BrandLux.charcoal,
                     letterSpacing: -0.1,
                   ),
                   decoration: InputDecoration(
                     hintText: 'e.g. Atlanta Construction Pros',
                     hintStyle: GoogleFonts.inter(
-                      color: AppLux.muted.withValues(alpha: 0.9),
+                      color: _BrandLux.muted.withValues(alpha: 0.9),
                       fontSize: 15,
                       fontWeight: FontWeight.w400,
                     ),
                     filled: true,
-                    fillColor: AppLux.surface,
+                    fillColor: _BrandLux.surface,
                     prefixIcon: const Icon(
                       Icons.business_rounded,
                       size: 20,
-                      color: AppLux.icon,
+                      color: _BrandLux.icon,
                     ),
                     prefixIconConstraints: const BoxConstraints(
                       minWidth: 52,
@@ -353,21 +372,21 @@ class _BrandingScreenState extends State<BrandingScreen> {
                     border: OutlineInputBorder(
                       borderRadius: radius,
                       borderSide: const BorderSide(
-                        color: AppLux.borderSoft,
+                        color: _BrandLux.borderSoft,
                         width: 0.7,
                       ),
                     ),
                     enabledBorder: OutlineInputBorder(
                       borderRadius: radius,
                       borderSide: const BorderSide(
-                        color: AppLux.border,
+                        color: _BrandLux.border,
                         width: 0.7,
                       ),
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: radius,
                       borderSide: BorderSide(
-                        color: AppLux.teal.withValues(alpha: 0.72),
+                        color: _BrandLux.teal.withValues(alpha: 0.72),
                         width: 1.35,
                       ),
                     ),
@@ -382,7 +401,7 @@ class _BrandingScreenState extends State<BrandingScreen> {
                   style: GoogleFonts.inter(
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
-                    color: AppLux.charcoal,
+                    color: _BrandLux.charcoal,
                     letterSpacing: -0.4,
                     height: 1.2,
                   ),
@@ -393,24 +412,24 @@ class _BrandingScreenState extends State<BrandingScreen> {
                   style: GoogleFonts.inter(
                     fontSize: 13.5,
                     height: 1.45,
-                    color: AppLux.muted,
+                    color: _BrandLux.muted,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
                 const SizedBox(height: 16),
                 Container(
                   padding: const EdgeInsets.all(18),
-                  decoration: AppLux.card(radius: 20),
+                  decoration: _BrandLux.card(),
                   child: Row(
                     children: [
                       Container(
                         width: 56,
                         height: 56,
                         decoration: BoxDecoration(
-                          color: AppLux.bg,
+                          color: _BrandLux.bg,
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
-                            color: AppLux.border,
+                            color: _BrandLux.border,
                             width: 0.75,
                           ),
                         ),
@@ -423,7 +442,7 @@ class _BrandingScreenState extends State<BrandingScreen> {
                               )
                             : const Icon(
                                 Icons.image_outlined,
-                                color: AppLux.icon,
+                                color: _BrandLux.icon,
                                 size: 22,
                               ),
                       ),
@@ -439,7 +458,7 @@ class _BrandingScreenState extends State<BrandingScreen> {
                               style: GoogleFonts.inter(
                                 fontSize: 15.5,
                                 fontWeight: FontWeight.w700,
-                                color: AppLux.charcoal,
+                                color: _BrandLux.charcoal,
                                 letterSpacing: -0.25,
                               ),
                             ),
@@ -451,7 +470,7 @@ class _BrandingScreenState extends State<BrandingScreen> {
                               style: GoogleFonts.inter(
                                 fontSize: 12.5,
                                 height: 1.35,
-                                color: AppLux.muted,
+                                color: _BrandLux.muted,
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
@@ -465,10 +484,10 @@ class _BrandingScreenState extends State<BrandingScreen> {
                           vertical: 5,
                         ),
                         decoration: BoxDecoration(
-                          color: AppLux.tealMist,
+                          color: _BrandLux.tealMist,
                           borderRadius: BorderRadius.circular(999),
                           border: Border.all(
-                            color: AppLux.teal.withValues(alpha: 0.14),
+                            color: _BrandLux.teal.withValues(alpha: 0.14),
                             width: 0.75,
                           ),
                         ),
@@ -478,7 +497,7 @@ class _BrandingScreenState extends State<BrandingScreen> {
                             fontSize: 11.5,
                             fontWeight: FontWeight.w700,
                             letterSpacing: 0.2,
-                            color: AppLux.teal,
+                            color: _BrandLux.teal,
                           ),
                         ),
                       ),
@@ -493,16 +512,16 @@ class _BrandingScreenState extends State<BrandingScreen> {
           Container(
             padding: EdgeInsets.fromLTRB(24, 16, 24, 16 + bottom),
             decoration: BoxDecoration(
-              color: AppLux.surface.withValues(alpha: 0.97),
+              color: _BrandLux.surface.withValues(alpha: 0.97),
               border: Border(
                 top: BorderSide(
-                  color: AppLux.border.withValues(alpha: 0.75),
+                  color: _BrandLux.border.withValues(alpha: 0.75),
                   width: 0.55,
                 ),
               ),
               boxShadow: [
                 BoxShadow(
-                  color: AppLux.charcoal.withValues(alpha: 0.035),
+                  color: _BrandLux.charcoal.withValues(alpha: 0.035),
                   blurRadius: 24,
                   offset: const Offset(0, -8),
                 ),
@@ -531,16 +550,16 @@ class _OutlineAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = destructive ? const Color(0xFFB91C1C) : AppLux.charcoal;
+    final color = destructive ? const Color(0xFFB91C1C) : _BrandLux.charcoal;
     return OutlinedButton.icon(
       onPressed: onPressed,
       icon: Icon(icon, size: 18),
       label: Text(label),
       style: OutlinedButton.styleFrom(
         foregroundColor: color,
-        backgroundColor: AppLux.surface,
+        backgroundColor: _BrandLux.surface,
         side: BorderSide(
-          color: destructive ? color.withValues(alpha: 0.28) : AppLux.border,
+          color: destructive ? color.withValues(alpha: 0.28) : _BrandLux.border,
           width: 0.85,
         ),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -586,28 +605,28 @@ class _SaveBrandingButtonState extends State<_SaveBrandingButton> {
             end: Alignment.bottomCenter,
             colors: enabled
                 ? [
-                    Color.lerp(AppLux.teal, AppLux.tealBright, 0.28)!,
-                    AppLux.teal,
-                    Color.lerp(AppLux.teal, const Color(0xFF0A5C56), 0.25)!,
+                    Color.lerp(_BrandLux.teal, _BrandLux.tealBright, 0.28)!,
+                    _BrandLux.teal,
+                    Color.lerp(_BrandLux.teal, const Color(0xFF0A5C56), 0.25)!,
                   ]
                 : [
-                    AppLux.teal.withValues(alpha: 0.38),
-                    AppLux.teal.withValues(alpha: 0.34),
-                    AppLux.teal.withValues(alpha: 0.32),
+                    _BrandLux.teal.withValues(alpha: 0.38),
+                    _BrandLux.teal.withValues(alpha: 0.34),
+                    _BrandLux.teal.withValues(alpha: 0.32),
                   ],
             stops: const [0.0, 0.55, 1.0],
           ),
           boxShadow: enabled
               ? [
                   BoxShadow(
-                    color: AppLux.teal.withValues(
+                    color: _BrandLux.teal.withValues(
                       alpha: _pressed ? 0.14 : 0.22,
                     ),
                     blurRadius: _pressed ? 16 : 28,
                     offset: Offset(0, _pressed ? 6 : 12),
                   ),
                   BoxShadow(
-                    color: AppLux.charcoal.withValues(alpha: 0.06),
+                    color: _BrandLux.charcoal.withValues(alpha: 0.06),
                     blurRadius: 18,
                     offset: const Offset(0, 8),
                   ),

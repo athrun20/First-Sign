@@ -224,7 +224,12 @@ class ExteriorFeatureSnapshot {
   /// Ground-level downspout / discharge pipes with wet soil near foundation.
   ///
   /// Intentionally weak eave/gutter line so analysis must not invent
-  /// "clogged gutter at the roof edge" copy for pipe-at-grade photos.
+  /// clogged-gutter-at-eave copy for pipe-at-grade photos.
+  ///
+  /// Used by drainage / paint / wall-defect unit tests and grade Quick Scan
+  /// suppression (pipe, soil, mulch, outlet frames).
+  ///
+  /// Call as: `ExteriorFeatureSnapshot.groundDischarge(...)`.
   factory ExteriorFeatureSnapshot.groundDischarge({
     int seed = 71,
     String label = 'downspout discharge at grade',
@@ -612,6 +617,48 @@ class AnalysisGoldenSet {
       ),
     ),
     (
+      id: 'ground_discharge',
+      photos: [
+        ExteriorFeatureSnapshot.groundDischarge(
+          seed: 71,
+          label: 'White discharge pipes at grade',
+        ),
+        ExteriorFeatureSnapshot.groundDischarge(
+          seed: 72,
+          label: 'Wet soil near foundation outlet',
+        ),
+      ],
+      labels: const {
+        'pipe': 0.82,
+        'downspout': 0.76,
+        'drain': 0.70,
+        'foundation': 0.62,
+        'soil': 0.58,
+      },
+      expect: const GoldenScenarioExpectation(
+        id: 'ground_discharge',
+        description:
+            'Pipe/soil at grade maps to drainage, not siding cracks or paint',
+        minScore: 70,
+        maxScore: 96,
+        maxHighCount: 0,
+        mustIncludeCategoryHints: [
+          'gutter',
+          'drainage',
+          'downspout',
+          'outlet',
+          'dumping',
+          'foundation',
+        ],
+        mustNotIncludeCategoryHints: [
+          'siding crack',
+          'cracked siding',
+          'peeling paint',
+        ],
+        maxConfidence: 84,
+      ),
+    ),
+    (
       id: 'foundation_concern',
       photos: [
         ExteriorFeatureSnapshot.foundationConcern(seed: 41, label: 'Base'),
@@ -743,12 +790,7 @@ class AnalysisGoldenSet {
         minScore: 62,
         maxScore: 92,
         maxHighCount: 1,
-        mustIncludeCategoryHints: [
-          'siding',
-          'patch',
-          'mismatched',
-          'cladding',
-        ],
+        mustIncludeCategoryHints: ['siding', 'patch', 'mismatched', 'cladding'],
         // Prefer not inventing roof/foundation from wall color blocks.
         mustNotIncludeCategoryHints: ['foundation crack', 'missing shingle'],
         maxConfidence: 95,

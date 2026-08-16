@@ -1,5 +1,3 @@
-import 'dart:async' show unawaited;
-
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -9,6 +7,28 @@ import '../theme/app_lux.dart';
 import 'branding_screen.dart';
 import 'lead_detail_screen.dart';
 import 'manage_contractors_screen.dart';
+
+/// Contractor luxury tokens — aliases of [AppLux].
+abstract final class _ProLux {
+  static const bg = AppLux.bg;
+  static const surface = AppLux.surface;
+  static const border = AppLux.border;
+  static const borderSoft = AppLux.borderSoft;
+  static const charcoal = AppLux.charcoal;
+  static const body = AppLux.body;
+  static const muted = AppLux.muted;
+  static const icon = AppLux.icon;
+  static const teal = AppLux.teal;
+  static const tealMist = AppLux.tealMist;
+  static const gold = AppLux.gold;
+  static const goldSoft = AppLux.goldSoft;
+
+  static List<BoxShadow> cardShadow({double intensity = 1}) =>
+      AppLux.cardShadow(intensity: intensity);
+
+  static BoxDecoration card({double radius = AppLux.radius3xl}) =>
+      AppLux.card(radius: radius);
+}
 
 /// Local contractor pipeline: list leads, filter by status, open detail.
 class ContractorDashboardScreen extends StatefulWidget {
@@ -26,11 +46,9 @@ class _ContractorDashboardScreenState extends State<ContractorDashboardScreen> {
   @override
   void initState() {
     super.initState();
-    unawaited(
-      LeadStore.instance.ensureLoaded().then((_) {
-        if (mounted) setState(() {});
-      }),
-    );
+    LeadStore.instance.ensureLoaded().then((_) {
+      if (mounted) setState(() {});
+    });
     LeadStore.instance.addListener(_onStore);
   }
 
@@ -58,20 +76,14 @@ class _ContractorDashboardScreenState extends State<ContractorDashboardScreen> {
   }
 
   void _openBranding() {
-    unawaited(
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => const BrandingScreen()),
-      ),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const BrandingScreen()));
   }
 
-  void _openInviteNetwork() {
-    unawaited(
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => const ManageContractorsScreen(),
-        ),
-      ),
+  void _openManageContractors() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const ManageContractorsScreen()),
     );
   }
 
@@ -83,32 +95,45 @@ class _ContractorDashboardScreenState extends State<ContractorDashboardScreen> {
     final bottom = MediaQuery.paddingOf(context).bottom;
 
     return Scaffold(
-      backgroundColor: AppLux.bg,
+      backgroundColor: _ProLux.bg,
       appBar: AppBar(
-        backgroundColor: AppLux.bg,
+        backgroundColor: _ProLux.bg,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         scrolledUnderElevation: 0,
-        foregroundColor: AppLux.charcoal,
+        foregroundColor: _ProLux.charcoal,
         title: Text(
           'Pro tools',
           style: GoogleFonts.inter(
             fontWeight: FontWeight.w600,
             fontSize: 19,
             letterSpacing: -0.4,
-            color: AppLux.charcoal,
+            color: _ProLux.charcoal,
           ),
         ),
         actions: [
+          IconButton(
+            tooltip: 'Invitee contractors',
+            onPressed: _openManageContractors,
+            style: IconButton.styleFrom(
+              foregroundColor: _ProLux.charcoal,
+              backgroundColor: _ProLux.surface,
+              side: const BorderSide(color: _ProLux.border, width: 0.75),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+            ),
+            icon: const Icon(Icons.groups_outlined, size: 20),
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: IconButton(
               tooltip: 'PDF branding',
               onPressed: _openBranding,
               style: IconButton.styleFrom(
-                foregroundColor: AppLux.charcoal,
-                backgroundColor: AppLux.surface,
-                side: const BorderSide(color: AppLux.border, width: 0.75),
+                foregroundColor: _ProLux.charcoal,
+                backgroundColor: _ProLux.surface,
+                side: const BorderSide(color: _ProLux.border, width: 0.75),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(14),
                 ),
@@ -119,7 +144,12 @@ class _ContractorDashboardScreenState extends State<ContractorDashboardScreen> {
         ],
       ),
       body: store.isLoading && !store.isLoaded
-          ? Center(child: AppLux.loadingCard(label: 'Loading leads…'))
+          ? const Center(
+              child: CircularProgressIndicator(
+                strokeWidth: 2.4,
+                color: _ProLux.teal,
+              ),
+            )
           : Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -134,22 +164,18 @@ class _ContractorDashboardScreenState extends State<ContractorDashboardScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'FirstSign pro tools for contractor follow-up. '
-                                'Leads and branding stay on this device.',
+                                'Leads & branding for contractor follow-up. '
+                                'Everything stays on this device.',
                                 style: GoogleFonts.inter(
                                   fontSize: 15,
-                                  height: 1.55,
-                                  color: AppLux.body,
+                                  height: 1.6,
+                                  color: _ProLux.body,
                                   fontWeight: FontWeight.w400,
                                   letterSpacing: 0.05,
                                 ),
                               ),
                               const SizedBox(height: 24),
                               _BrandingAccessCard(onTap: _openBranding),
-                              const SizedBox(height: 12),
-                              _InviteNetworkAccessCard(
-                                onTap: _openInviteNetwork,
-                              ),
                               const SizedBox(height: 32),
                               Row(
                                 crossAxisAlignment: CrossAxisAlignment.end,
@@ -160,7 +186,7 @@ class _ContractorDashboardScreenState extends State<ContractorDashboardScreen> {
                                       style: GoogleFonts.inter(
                                         fontSize: 18,
                                         fontWeight: FontWeight.w700,
-                                        color: AppLux.charcoal,
+                                        color: _ProLux.charcoal,
                                         letterSpacing: -0.4,
                                         height: 1.2,
                                       ),
@@ -173,44 +199,39 @@ class _ContractorDashboardScreenState extends State<ContractorDashboardScreen> {
                                     style: GoogleFonts.inter(
                                       fontSize: 13,
                                       fontWeight: FontWeight.w500,
-                                      color: AppLux.muted,
+                                      color: _ProLux.muted,
                                       letterSpacing: 0.1,
                                     ),
                                   ),
                                 ],
                               ),
-                              if (leads.isNotEmpty) ...[
-                                const SizedBox(height: 16),
-                                _SearchField(
-                                  controller: _search,
-                                  onChanged: (_) => setState(() {}),
-                                ),
-                                const SizedBox(height: 14),
-                                SingleChildScrollView(
-                                  scrollDirection: Axis.horizontal,
-                                  child: Row(
-                                    children: [
-                                      for (final s in [
-                                        'All',
-                                        ...LeadStatus.all,
-                                      ])
-                                        Padding(
-                                          padding: const EdgeInsets.only(
-                                            right: 8,
-                                          ),
-                                          child: _StatusChip(
-                                            label: s == 'All'
-                                                ? 'All (${store.countForStatus('All')})'
-                                                : '$s (${store.countForStatus(s)})',
-                                            selected: _status == s,
-                                            onTap: () =>
-                                                setState(() => _status = s),
-                                          ),
+                              const SizedBox(height: 16),
+                              _SearchField(
+                                controller: _search,
+                                onChanged: (_) => setState(() {}),
+                              ),
+                              const SizedBox(height: 14),
+                              SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: Row(
+                                  children: [
+                                    for (final s in ['All', ...LeadStatus.all])
+                                      Padding(
+                                        padding: const EdgeInsets.only(
+                                          right: 8,
                                         ),
-                                    ],
-                                  ),
+                                        child: _StatusChip(
+                                          label: s == 'All'
+                                              ? 'All (${store.countForStatus('All')})'
+                                              : '$s (${store.countForStatus(s)})',
+                                          selected: _status == s,
+                                          onTap: () =>
+                                              setState(() => _status = s),
+                                        ),
+                                      ),
+                                  ],
                                 ),
-                              ],
+                              ),
                               const SizedBox(height: 20),
                             ],
                           ),
@@ -218,28 +239,12 @@ class _ContractorDashboardScreenState extends State<ContractorDashboardScreen> {
                       ),
 
                       // Empty or lead list
-                      if (leads.isEmpty)
-                        SliverToBoxAdapter(
+                      if (filtered.isEmpty)
+                        SliverFillRemaining(
+                          hasScrollBody: false,
                           child: Padding(
-                            padding: EdgeInsets.fromLTRB(
-                              24,
-                              0,
-                              24,
-                              32 + bottom,
-                            ),
-                            child: _ZeroLeadsState(
-                              onOpenBranding: _openBranding,
-                              onBackHome: () => Navigator.of(
-                                context,
-                              ).popUntil((r) => r.isFirst),
-                            ),
-                          ),
-                        )
-                      else if (filtered.isEmpty)
-                        const SliverToBoxAdapter(
-                          child: Padding(
-                            padding: EdgeInsets.fromLTRB(24, 0, 24, 40),
-                            child: _NoMatchState(),
+                            padding: const EdgeInsets.fromLTRB(32, 8, 32, 40),
+                            child: _EmptyState(hasAnyLeads: leads.isNotEmpty),
                           ),
                         )
                       else
@@ -254,12 +259,10 @@ class _ContractorDashboardScreenState extends State<ContractorDashboardScreen> {
                               return _LeadCard(
                                 lead: lead,
                                 onTap: () {
-                                  unawaited(
-                                    Navigator.of(context).push(
-                                      MaterialPageRoute<void>(
-                                        builder: (_) =>
-                                            LeadDetailScreen(leadId: lead.id),
-                                      ),
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) =>
+                                          LeadDetailScreen(leadId: lead.id),
                                     ),
                                   );
                                 },
@@ -285,57 +288,15 @@ class _BrandingAccessCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _ProToolAccessCard(
-      onTap: onTap,
-      icon: Icons.picture_as_pdf_outlined,
-      title: 'PDF branding',
-      subtitle: 'Logo & company name on report exports',
-    );
-  }
-}
-
-// ── Invite network (owner) ──────────────────────────────────────────────────
-
-class _InviteNetworkAccessCard extends StatelessWidget {
-  const _InviteNetworkAccessCard({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return _ProToolAccessCard(
-      onTap: onTap,
-      icon: Icons.groups_2_outlined,
-      title: 'Invite network',
-      subtitle: 'Add & manage contractors for future matching',
-    );
-  }
-}
-
-class _ProToolAccessCard extends StatelessWidget {
-  const _ProToolAccessCard({
-    required this.onTap,
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-  });
-
-  final VoidCallback onTap;
-  final IconData icon;
-  final String title;
-  final String subtitle;
-
-  @override
-  Widget build(BuildContext context) {
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(20),
-        splashColor: AppLux.teal.withValues(alpha: 0.06),
-        highlightColor: AppLux.teal.withValues(alpha: 0.03),
+        splashColor: _ProLux.teal.withValues(alpha: 0.06),
+        highlightColor: _ProLux.teal.withValues(alpha: 0.03),
         child: Ink(
-          decoration: AppLux.card(radius: 20),
+          decoration: _ProLux.card(),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(18, 16, 14, 16),
             child: Row(
@@ -344,14 +305,18 @@ class _ProToolAccessCard extends StatelessWidget {
                   width: 48,
                   height: 48,
                   decoration: BoxDecoration(
-                    color: AppLux.tealMist,
+                    color: _ProLux.tealMist,
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(
-                      color: AppLux.teal.withValues(alpha: 0.12),
+                      color: _ProLux.teal.withValues(alpha: 0.12),
                       width: 0.75,
                     ),
                   ),
-                  child: Icon(icon, size: 22, color: AppLux.teal),
+                  child: const Icon(
+                    Icons.picture_as_pdf_outlined,
+                    size: 22,
+                    color: _ProLux.teal,
+                  ),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
@@ -359,22 +324,22 @@ class _ProToolAccessCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        title,
+                        'PDF branding',
                         style: GoogleFonts.inter(
                           fontSize: 15.5,
                           fontWeight: FontWeight.w700,
-                          color: AppLux.charcoal,
+                          color: _ProLux.charcoal,
                           letterSpacing: -0.25,
                           height: 1.2,
                         ),
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        subtitle,
+                        'Logo & company name on report exports',
                         style: GoogleFonts.inter(
                           fontSize: 13,
                           height: 1.4,
-                          color: AppLux.muted,
+                          color: _ProLux.muted,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -385,7 +350,7 @@ class _ProToolAccessCard extends StatelessWidget {
                 Icon(
                   Icons.chevron_right_rounded,
                   size: 22,
-                  color: AppLux.icon.withValues(alpha: 0.85),
+                  color: _ProLux.icon.withValues(alpha: 0.85),
                 ),
               ],
             ),
@@ -410,48 +375,48 @@ class _SearchField extends StatelessWidget {
     return TextField(
       controller: controller,
       onChanged: onChanged,
-      cursorColor: AppLux.teal,
+      cursorColor: _ProLux.teal,
       cursorWidth: 1.4,
       style: GoogleFonts.inter(
         fontSize: 15.5,
         fontWeight: FontWeight.w500,
-        color: AppLux.charcoal,
+        color: _ProLux.charcoal,
         letterSpacing: -0.1,
       ),
       decoration: InputDecoration(
         hintText: 'Search name, address, or notes…',
         hintStyle: GoogleFonts.inter(
-          color: AppLux.muted.withValues(alpha: 0.9),
+          color: _ProLux.muted.withValues(alpha: 0.9),
           fontSize: 15,
           fontWeight: FontWeight.w400,
         ),
         prefixIcon: const Icon(
           Icons.search_rounded,
           size: 20,
-          color: AppLux.icon,
+          color: _ProLux.icon,
         ),
         prefixIconConstraints: const BoxConstraints(
           minWidth: 48,
           minHeight: 50,
         ),
         filled: true,
-        fillColor: AppLux.surface,
+        fillColor: _ProLux.surface,
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 16,
           vertical: 16,
         ),
         border: OutlineInputBorder(
           borderRadius: radius,
-          borderSide: const BorderSide(color: AppLux.borderSoft, width: 0.7),
+          borderSide: const BorderSide(color: _ProLux.borderSoft, width: 0.7),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: radius,
-          borderSide: const BorderSide(color: AppLux.border, width: 0.7),
+          borderSide: const BorderSide(color: _ProLux.border, width: 0.7),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: radius,
           borderSide: BorderSide(
-            color: AppLux.teal.withValues(alpha: 0.72),
+            color: _ProLux.teal.withValues(alpha: 0.72),
             width: 1.35,
           ),
         ),
@@ -485,23 +450,23 @@ class _StatusChip extends StatelessWidget {
           curve: Curves.easeOutCubic,
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
           decoration: BoxDecoration(
-            color: selected ? AppLux.teal : AppLux.surface,
+            color: selected ? _ProLux.teal : _ProLux.surface,
             borderRadius: BorderRadius.circular(999),
             border: Border.all(
               color: selected
-                  ? AppLux.teal.withValues(alpha: 0.9)
-                  : AppLux.border,
+                  ? _ProLux.teal.withValues(alpha: 0.9)
+                  : _ProLux.border,
               width: 0.75,
             ),
             boxShadow: selected
                 ? [
                     BoxShadow(
-                      color: AppLux.teal.withValues(alpha: 0.18),
+                      color: _ProLux.teal.withValues(alpha: 0.18),
                       blurRadius: 14,
                       offset: const Offset(0, 4),
                     ),
                   ]
-                : AppLux.cardShadow(intensity: 0.5),
+                : _ProLux.cardShadow(intensity: 0.5),
           ),
           child: Text(
             label,
@@ -509,7 +474,7 @@ class _StatusChip extends StatelessWidget {
               fontSize: 13,
               fontWeight: FontWeight.w600,
               letterSpacing: 0.05,
-              color: selected ? Colors.white : AppLux.body,
+              color: selected ? Colors.white : _ProLux.body,
             ),
           ),
         ),
@@ -529,22 +494,22 @@ class _LeadCard extends StatelessWidget {
   Color get _statusColor {
     switch (lead.status) {
       case LeadStatus.won:
-        return AppLux.teal;
+        return _ProLux.teal;
       case LeadStatus.quoted:
-        return AppLux.gold;
+        return _ProLux.gold;
       case LeadStatus.contacted:
         return const Color(0xFF0369A1);
       default:
-        return AppLux.charcoal;
+        return _ProLux.charcoal;
     }
   }
 
   Color get _statusBg {
     switch (lead.status) {
       case LeadStatus.won:
-        return AppLux.tealMist;
+        return _ProLux.tealMist;
       case LeadStatus.quoted:
-        return AppLux.goldSoft;
+        return _ProLux.goldSoft;
       case LeadStatus.contacted:
         return const Color(0xFFF0F9FF);
       default:
@@ -563,10 +528,10 @@ class _LeadCard extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(20),
-        splashColor: AppLux.teal.withValues(alpha: 0.05),
-        highlightColor: AppLux.teal.withValues(alpha: 0.02),
+        splashColor: _ProLux.teal.withValues(alpha: 0.05),
+        highlightColor: _ProLux.teal.withValues(alpha: 0.02),
         child: Ink(
-          decoration: AppLux.card(radius: 20),
+          decoration: _ProLux.card(),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(18, 16, 16, 16),
             child: Column(
@@ -582,7 +547,7 @@ class _LeadCard extends StatelessWidget {
                           fontWeight: FontWeight.w700,
                           fontSize: 16,
                           letterSpacing: -0.3,
-                          color: AppLux.charcoal,
+                          color: _ProLux.charcoal,
                           height: 1.25,
                         ),
                       ),
@@ -619,7 +584,7 @@ class _LeadCard extends StatelessWidget {
                   style: GoogleFonts.inter(
                     fontSize: 13.5,
                     height: 1.4,
-                    color: AppLux.body,
+                    color: _ProLux.body,
                     fontWeight: FontWeight.w400,
                   ),
                 ),
@@ -629,7 +594,7 @@ class _LeadCard extends StatelessWidget {
                   style: GoogleFonts.inter(
                     fontSize: 12.5,
                     height: 1.35,
-                    color: AppLux.muted,
+                    color: _ProLux.muted,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
@@ -641,10 +606,10 @@ class _LeadCard extends StatelessWidget {
                     vertical: 10,
                   ),
                   decoration: BoxDecoration(
-                    color: AppLux.bg.withValues(alpha: 0.65),
+                    color: _ProLux.bg.withValues(alpha: 0.65),
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
-                      color: AppLux.border.withValues(alpha: 0.7),
+                      color: _ProLux.border.withValues(alpha: 0.7),
                       width: 0.6,
                     ),
                   ),
@@ -669,7 +634,7 @@ class _LeadCard extends StatelessWidget {
                           style: GoogleFonts.inter(
                             fontSize: 12.5,
                             fontWeight: FontWeight.w600,
-                            color: AppLux.teal,
+                            color: _ProLux.teal,
                             letterSpacing: -0.1,
                           ),
                         ),
@@ -697,14 +662,14 @@ class _MetricPill extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 14, color: AppLux.icon),
+        Icon(icon, size: 14, color: _ProLux.icon),
         const SizedBox(width: 5),
         Text(
           label,
           style: GoogleFonts.inter(
             fontSize: 12.5,
             fontWeight: FontWeight.w600,
-            color: AppLux.charcoal,
+            color: _ProLux.charcoal,
             letterSpacing: -0.1,
           ),
         ),
@@ -722,7 +687,7 @@ class _MetricDot extends StatelessWidget {
         width: 3,
         height: 3,
         decoration: BoxDecoration(
-          color: AppLux.muted.withValues(alpha: 0.55),
+          color: _ProLux.muted.withValues(alpha: 0.55),
           shape: BoxShape.circle,
         ),
       ),
@@ -730,215 +695,64 @@ class _MetricDot extends StatelessWidget {
   }
 }
 
-// ── Empty states ────────────────────────────────────────────────────────────
+// ── Empty state ─────────────────────────────────────────────────────────────
 
-/// Calm, intentional empty when no quote leads exist yet.
-class _ZeroLeadsState extends StatelessWidget {
-  const _ZeroLeadsState({
-    required this.onOpenBranding,
-    required this.onBackHome,
-  });
+class _EmptyState extends StatelessWidget {
+  const _EmptyState({required this.hasAnyLeads});
 
-  final VoidCallback onOpenBranding;
-  final VoidCallback onBackHome;
+  final bool hasAnyLeads;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        AppLux.emptyState(
-          icon: Icons.inbox_outlined,
-          title: 'No leads yet',
-          body:
-              'When a homeowner finishes an assessment and requests a quote, '
-              'their contact details and report summary land here — on this device only.',
-          action: SizedBox(
-            width: double.infinity,
-            child: OutlinedButton(
-              onPressed: onBackHome,
-              style: AppLux.secondaryButton(minHeight: 48),
-              child: Text(
-                'Back to home',
-                style: GoogleFonts.inter(fontWeight: FontWeight.w600),
+    return Center(
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 36),
+        decoration: _ProLux.card(radius: 22),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: _ProLux.tealMist,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Icon(
+                hasAnyLeads
+                    ? Icons.filter_list_off_rounded
+                    : Icons.inbox_outlined,
+                size: 26,
+                color: _ProLux.teal,
               ),
             ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        Container(
-          width: double.infinity,
-          decoration: AppLux.card(radius: AppLux.radius3xl),
-          padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'How leads arrive',
-                style: GoogleFonts.inter(
-                  fontSize: 14.5,
-                  fontWeight: FontWeight.w700,
-                  color: AppLux.charcoal,
-                  letterSpacing: -0.2,
-                ),
-              ),
-              const SizedBox(height: 14),
-              const _HowLeadStep(
-                number: '1',
-                title: 'Assessment',
-                body: 'Homeowner runs Full Assessment or Quick Scan.',
-              ),
-              const SizedBox(height: 12),
-              const _HowLeadStep(
-                number: '2',
-                title: 'Request a quote',
-                body: 'They share contact details from the report.',
-              ),
-              const SizedBox(height: 12),
-              const _HowLeadStep(
-                number: '3',
-                title: 'Follow up here',
-                body: 'Open the lead, add notes, and track status.',
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-        Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: onOpenBranding,
-            borderRadius: BorderRadius.circular(AppLux.radius2xl),
-            child: Ink(
-              decoration: AppLux.goldNote(radius: AppLux.radius2xl),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 14, 14, 14),
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.palette_outlined,
-                      size: 20,
-                      color: AppLux.gold,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'While you wait',
-                            style: GoogleFonts.inter(
-                              fontSize: 13.5,
-                              fontWeight: FontWeight.w700,
-                              color: AppLux.disclaimerInk,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            'Add PDF branding so exports look professional.',
-                            style: GoogleFonts.inter(
-                              fontSize: 12.5,
-                              height: 1.4,
-                              color: AppLux.disclaimerInk.withValues(
-                                alpha: 0.9,
-                              ),
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Icon(
-                      Icons.chevron_right_rounded,
-                      color: AppLux.gold.withValues(alpha: 0.85),
-                    ),
-                  ],
-                ),
+            const SizedBox(height: 18),
+            Text(
+              hasAnyLeads ? 'No matches' : 'No leads yet',
+              style: GoogleFonts.inter(
+                fontSize: 16.5,
+                fontWeight: FontWeight.w700,
+                color: _ProLux.charcoal,
+                letterSpacing: -0.3,
               ),
             ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _HowLeadStep extends StatelessWidget {
-  const _HowLeadStep({
-    required this.number,
-    required this.title,
-    required this.body,
-  });
-
-  final String number;
-  final String title;
-  final String body;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 26,
-          height: 26,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: AppLux.tealMist,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: AppLux.teal.withValues(alpha: 0.14),
-              width: 0.75,
-            ),
-          ),
-          child: Text(
-            number,
-            style: GoogleFonts.inter(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: AppLux.teal,
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: GoogleFonts.inter(
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w700,
-                  color: AppLux.charcoal,
-                ),
+            const SizedBox(height: 8),
+            Text(
+              hasAnyLeads
+                  ? 'Try another status filter or clear the search.'
+                  : 'When homeowners request a quote, leads appear here for follow-up.',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                height: 1.55,
+                color: _ProLux.body,
+                fontWeight: FontWeight.w400,
               ),
-              const SizedBox(height: 2),
-              Text(
-                body,
-                style: GoogleFonts.inter(
-                  fontSize: 13,
-                  height: 1.4,
-                  color: AppLux.body,
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
-      ],
-    );
-  }
-}
-
-class _NoMatchState extends StatelessWidget {
-  const _NoMatchState();
-
-  @override
-  Widget build(BuildContext context) {
-    return AppLux.emptyState(
-      icon: Icons.filter_list_off_rounded,
-      title: 'No matches',
-      body: 'Try another status filter or clear the search to see all leads.',
+      ),
     );
   }
 }

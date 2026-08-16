@@ -60,7 +60,10 @@ void main() {
         ContractorTrade.normalize('foundation repair'),
         ContractorTrade.foundation,
       );
-      expect(ContractorTrade.normalize('general contractor'), ContractorTrade.general);
+      expect(
+        ContractorTrade.normalize('general contractor'),
+        ContractorTrade.general,
+      );
     });
   });
 
@@ -108,11 +111,7 @@ void main() {
     test('returns empty when report has no findings', () {
       final matches = matchContractors(
         contractors: [
-          _contractor(
-            id: 'c1',
-            name: 'Any',
-            trades: [ContractorTrade.general],
-          ),
+          _contractor(id: 'c1', name: 'Any', trades: [ContractorTrade.general]),
         ],
         report: _report(const []),
         propertyAddress: 'Atlanta, GA 30301',
@@ -279,10 +278,10 @@ void main() {
       expect(restored.id, original.id);
       expect(restored.name, original.name);
       expect(restored.companyName, original.companyName);
-      expect(restored.trades, containsAll([
-        ContractorTrade.roofing,
-        ContractorTrade.gutters,
-      ]));
+      expect(
+        restored.trades,
+        containsAll([ContractorTrade.roofing, ContractorTrade.gutters]),
+      );
       expect(restored.serviceAreas, ['Decatur', '30030']);
       expect(restored.isActive, isTrue);
     });

@@ -7,7 +7,7 @@
 		<key>CFBundleDevelopmentRegion</key>
 		<string>$(DEVELOPMENT_LANGUAGE)</string>
 		<key>CFBundleDisplayName</key>
-		<string>FirstSign</string>
+		<string>First Sign</string>
 		<key>CFBundleExecutable</key>
 		<string>$(EXECUTABLE_NAME)</string>
 		<key>CFBundleIdentifier</key>
@@ -15,7 +15,7 @@
 		<key>CFBundleInfoDictionaryVersion</key>
 		<string>6.0</string>
 		<key>CFBundleName</key>
-		<string>FirstSign</string>
+		<string>First Sign</string>
 		<key>CFBundlePackageType</key>
 		<string>APPL</string>
 		<key>CFBundleShortVersionString</key>
@@ -48,11 +48,11 @@
 			</dict>
 		</dict>
 		<key>NSCameraUsageDescription</key>
-		<string>FirstSign needs camera access to capture guided exterior photos for screening.</string>
+		<string>First Sign needs camera access to capture guided exterior photos for screening.</string>
 		<key>NSPhotoLibraryUsageDescription</key>
-		<string>FirstSign needs photo library access to import exterior photos and upload a company logo for branded PDF reports.</string>
+		<string>First Sign needs photo library access to import exterior photos and upload a company logo for branded PDF reports.</string>
 		<key>NSPhotoLibraryAddUsageDescription</key>
-		<string>FirstSign may save screening images or exports you choose to keep.</string>
+		<string>First Sign may save screening images or exports you choose to keep.</string>
 		<key>UIApplicationSupportsIndirectInputEvents</key>
 		<true/>
 		<key>UILaunchStoryboardName</key>

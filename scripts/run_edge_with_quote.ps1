@@ -1,4 +1,4 @@
-# Run FirstSign on Edge with Formspree quote email (+ optional Vision key).
+# Run First Sign on Edge with Formspree quote email (+ optional Vision key).
 # 1) copy formspree.env.example.json formspree.env.json
 # 2) paste form URLs; optional GOOGLE_VISION_API_KEY
 # 3) .\scripts\run_edge_with_quote.ps1
@@ -48,7 +48,7 @@ if ($raw -match '"GOOGLE_VISION_API_KEY"\s*:\s*"([^"]*)"') {
   }
 }
 
-Write-Host "Starting FirstSign on Edge with formspree.env.json ..." -ForegroundColor Green
+Write-Host "Starting First Sign on Edge with formspree.env.json ..." -ForegroundColor Green
 Write-Host "  Formspree quote email: on" -ForegroundColor DarkGray
 if ($hasVision) {
   Write-Host "  Google Cloud Vision:   on (web may CORS-fallback to local)" -ForegroundColor DarkGray

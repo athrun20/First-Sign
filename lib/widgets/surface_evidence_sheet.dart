@@ -7,18 +7,17 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../legal/cost_copy.dart';
+import '../legal/privacy_copy.dart';
 import '../models/analysis_models.dart';
+import '../services/finding_retake_service.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public types
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Three viewing modes for Surface Evidence.
-enum EvidenceViewMode {
-  original,
-  overlay,
-  confidence,
-}
+enum EvidenceViewMode { original, overlay, confidence }
 
 /// Optional multi-angle / related capture for comparison.
 class SurfaceEvidenceAngle {
@@ -27,12 +26,16 @@ class SurfaceEvidenceAngle {
     required this.photo,
     this.highlight,
     this.isPrimary = false,
+    this.supportsFinding = true,
   });
 
   final String label;
   final XFile photo;
   final Rect? highlight;
   final bool isPrimary;
+
+  /// False when this frame is related context, not proof of the finding.
+  final bool supportsFinding;
 }
 
 /// Prior-scan evidence for the Evidence Timeline.
@@ -60,8 +63,8 @@ class SurfaceEvidenceTimeline {
   String get changeNarrative {
     final p = areaChangePercent;
     if (p == null) {
-      return 'Prior photo available — compare with the slider. '
-          'Area change is approximate from photo alignment only.';
+      return 'Same exterior area across scans — compare with the slider. '
+          'Alignment is approximate; photos were not 3D-registered.';
     }
     if (p.abs() < 3) {
       return 'No measurable change detected since your last scan.';
@@ -88,6 +91,7 @@ Future<void> showSurfaceEvidenceSheet({
   VoidCallback? onRetake,
   List<SurfaceEvidenceAngle> relatedAngles = const [],
   SurfaceEvidenceTimeline? timeline,
+  int initialAngleIndex = 0,
 }) {
   return showModalBottomSheet<void>(
     context: context,
@@ -103,6 +107,7 @@ Future<void> showSurfaceEvidenceSheet({
         onRetake: onRetake,
         relatedAngles: relatedAngles,
         timeline: timeline,
+        initialAngleIndex: initialAngleIndex,
       );
     },
   );
@@ -136,17 +141,17 @@ abstract final class _Fx {
   static const stagePlaceholder = Color(0xFF1E293B);
 
   static List<BoxShadow> soft({double i = 1}) => [
-        BoxShadow(
-          color: const Color(0xFF0F172A).withValues(alpha: 0.045 * i),
-          blurRadius: 28,
-          offset: const Offset(0, 12),
-        ),
-        BoxShadow(
-          color: const Color(0xFF0F172A).withValues(alpha: 0.018 * i),
-          blurRadius: 4,
-          offset: const Offset(0, 1),
-        ),
-      ];
+    BoxShadow(
+      color: const Color(0xFF0F172A).withValues(alpha: 0.045 * i),
+      blurRadius: 28,
+      offset: const Offset(0, 12),
+    ),
+    BoxShadow(
+      color: const Color(0xFF0F172A).withValues(alpha: 0.018 * i),
+      blurRadius: 4,
+      offset: const Offset(0, 1),
+    ),
+  ];
 
   static BoxDecoration card({
     double radius = 18,
@@ -163,31 +168,27 @@ abstract final class _Fx {
   }
 
   static TextStyle sectionLabelStyle() => GoogleFonts.inter(
-        fontSize: 11,
-        fontWeight: FontWeight.w700,
-        letterSpacing: 1.0,
-        color: muted,
-      );
+    fontSize: 11,
+    fontWeight: FontWeight.w700,
+    letterSpacing: 1.0,
+    color: muted,
+  );
 
   static TextStyle titleStyle({double size = 15.5}) => GoogleFonts.inter(
-        fontSize: size,
-        fontWeight: FontWeight.w700,
-        color: ink,
-        letterSpacing: -0.2,
-      );
+    fontSize: size,
+    fontWeight: FontWeight.w700,
+    color: ink,
+    letterSpacing: -0.2,
+  );
 
   static TextStyle bodyStyle({double size = 13.5, double height = 1.4}) =>
-      GoogleFonts.inter(
-        fontSize: size,
-        height: height,
-        color: body,
-      );
+      GoogleFonts.inter(fontSize: size, height: height, color: body);
 
   static TextStyle mutedStyle({double size = 12.5}) => GoogleFonts.inter(
-        fontSize: size,
-        color: muted,
-        fontWeight: FontWeight.w500,
-      );
+    fontSize: size,
+    color: muted,
+    fontWeight: FontWeight.w500,
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -203,6 +204,7 @@ class _SurfaceEvidenceSheet extends StatefulWidget {
     this.onRetake,
     this.relatedAngles = const [],
     this.timeline,
+    this.initialAngleIndex = 0,
   });
 
   final AnalysisIssue issue;
@@ -212,6 +214,7 @@ class _SurfaceEvidenceSheet extends StatefulWidget {
   final VoidCallback? onRetake;
   final List<SurfaceEvidenceAngle> relatedAngles;
   final SurfaceEvidenceTimeline? timeline;
+  final int initialAngleIndex;
 
   @override
   State<_SurfaceEvidenceSheet> createState() => _SurfaceEvidenceSheetState();
@@ -228,13 +231,14 @@ class _SurfaceEvidenceSheetState extends State<_SurfaceEvidenceSheet>
   EvidenceViewMode _mode = EvidenceViewMode.original;
   bool _scanComplete = false;
   bool _whyOpen = true;
-  int _angleIndex = 0;
+  late int _angleIndex;
   double _timelineSplit = 0.5;
   Size? _stageSize;
 
   AnalysisIssue get issue => widget.issue;
 
   Rect get _highlight {
+    if (!_selectedSupportsFinding) return Rect.zero;
     if (!issue.shouldShowSurfaceHighlight) return Rect.zero;
     return issue.surfaceHighlight;
   }
@@ -249,8 +253,8 @@ class _SurfaceEvidenceSheetState extends State<_SurfaceEvidenceSheet>
               ? widget.sourcePhotoLabel
               : 'Primary',
           photo: primary,
-          highlight: _highlight == Rect.zero ? null : _highlight,
           isPrimary: true,
+          supportsFinding: true,
         ),
       );
     }
@@ -261,9 +265,20 @@ class _SurfaceEvidenceSheetState extends State<_SurfaceEvidenceSheet>
     return list;
   }
 
+  SurfaceEvidenceAngle? get _selectedAngle {
+    final angles = _angles;
+    if (angles.isEmpty) return null;
+    final i = _angleIndex.clamp(0, angles.length - 1);
+    return angles[i];
+  }
+
+  bool get _selectedSupportsFinding =>
+      _selectedAngle?.supportsFinding ?? true;
+
   @override
   void initState() {
     super.initState();
+    _angleIndex = widget.initialAngleIndex < 0 ? 0 : widget.initialAngleIndex;
     _transform = TransformationController();
     _pulse = AnimationController(
       vsync: this,
@@ -415,7 +430,12 @@ class _SurfaceEvidenceSheetState extends State<_SurfaceEvidenceSheet>
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '${issue.location}  ·  ${issue.sourcePhotoDisplay}',
+                    FindingRetakeService.evidenceCaption(
+                      issue: issue,
+                      photoLabel: _selectedAngle?.label ??
+                          widget.sourcePhotoLabel,
+                      photoSupportsFinding: _selectedSupportsFinding,
+                    ),
                     style: GoogleFonts.inter(
                       fontSize: 13.5,
                       color: _Fx.body,
@@ -423,6 +443,10 @@ class _SurfaceEvidenceSheetState extends State<_SurfaceEvidenceSheet>
                       height: 1.35,
                     ),
                   ),
+                  if (!_selectedSupportsFinding) ...[
+                    const SizedBox(height: 10),
+                    _RelatedContextBanner(issue: issue),
+                  ],
                   const SizedBox(height: 14),
 
                   // Primary confidence label (not %)
@@ -482,8 +506,13 @@ class _SurfaceEvidenceSheetState extends State<_SurfaceEvidenceSheet>
                         ),
                       ),
                       TextButton.icon(
-                        onPressed: _highlight == Rect.zero ? null : _zoomToEvidence,
-                        icon: const Icon(Icons.center_focus_strong_rounded, size: 16),
+                        onPressed: _highlight == Rect.zero
+                            ? null
+                            : _zoomToEvidence,
+                        icon: const Icon(
+                          Icons.center_focus_strong_rounded,
+                          size: 16,
+                        ),
                         label: const Text('Focus'),
                         style: TextButton.styleFrom(
                           foregroundColor: _Fx.orange,
@@ -546,7 +575,7 @@ class _SurfaceEvidenceSheetState extends State<_SurfaceEvidenceSheet>
                   const SizedBox(height: 16),
                   Text(
                     'Visualizations show estimated regions from exterior photo screening. '
-                    'FirstSign does not see through walls, measure depth, or replace an on-site inspection.',
+                    'First Sign does not see through walls, measure depth, or replace an on-site inspection.',
                     textAlign: TextAlign.center,
                     style: GoogleFonts.inter(
                       fontSize: 12,
@@ -564,13 +593,12 @@ class _SurfaceEvidenceSheetState extends State<_SurfaceEvidenceSheet>
   }
 
   String _modeCaption(EvidenceViewMode m) => switch (m) {
-        EvidenceViewMode.original =>
-          'Your capture — no AI markup.',
-        EvidenceViewMode.overlay =>
-          'Estimated damage region from photo cues (not a surveyed outline).',
-        EvidenceViewMode.confidence =>
-          'Where the model focused attention — softer = lower certainty.',
-      };
+    EvidenceViewMode.original => 'Your capture — no AI markup.',
+    EvidenceViewMode.overlay =>
+      'Estimated damage region from photo cues (not a surveyed outline).',
+    EvidenceViewMode.confidence =>
+      'Where the model focused attention — softer = lower certainty.',
+  };
 
   Widget _buildHeader() {
     return Padding(
@@ -752,14 +780,17 @@ class _ModeBar extends StatelessWidget {
                     boxShadow: mode == m ? _Fx.soft(i: 0.7) : null,
                   ),
                   child: Opacity(
-                    opacity: (enabled || m == EvidenceViewMode.original) ? 1 : 0.4,
+                    opacity: (enabled || m == EvidenceViewMode.original)
+                        ? 1
+                        : 0.4,
                     child: Text(
                       label,
                       textAlign: TextAlign.center,
                       style: GoogleFonts.inter(
                         fontSize: 13.5,
-                        fontWeight:
-                            mode == m ? FontWeight.w700 : FontWeight.w500,
+                        fontWeight: mode == m
+                            ? FontWeight.w700
+                            : FontWeight.w500,
                         color: mode == m ? _Fx.ink : _Fx.body,
                       ),
                     ),
@@ -815,7 +846,9 @@ class _PhotoStage extends StatelessWidget {
     final angle = angles.isEmpty
         ? null
         : angles[angleIndex.clamp(0, angles.length - 1)];
-    final hl = angle?.highlight ?? highlight;
+    final hl = (angle?.supportsFinding ?? true)
+        ? (angle?.highlight ?? highlight)
+        : Rect.zero;
 
     return Container(
       decoration: BoxDecoration(
@@ -927,9 +960,8 @@ class _PhotoStage extends StatelessWidget {
                   child: _Tag(
                     label: switch (mode) {
                       EvidenceViewMode.original => 'Original',
-                      EvidenceViewMode.overlay => hasLocalized
-                          ? 'Estimated region'
-                          : 'Zone estimate',
+                      EvidenceViewMode.overlay =>
+                        hasLocalized ? 'Estimated region' : 'Zone estimate',
                       EvidenceViewMode.confidence => 'Attention map',
                     },
                   ),
@@ -1160,8 +1192,7 @@ class _ConfidenceMapPainter extends CustomPainter {
                 const Color(0xFFF97316),
                 const Color(0xFFEF4444),
                 strength,
-              )!
-                  .withValues(alpha: 0.42 * strength),
+              )!.withValues(alpha: 0.42 * strength),
               const Color(0xFFFBBF24).withValues(alpha: 0.22 * strength),
               const Color(0xFF22D3EE).withValues(alpha: 0.10 * strength),
               Colors.transparent,
@@ -1243,11 +1274,7 @@ class _PulseFocusPainter extends CustomPainter {
       4.2,
       Paint()..color = Colors.white.withValues(alpha: 0.95),
     );
-    canvas.drawCircle(
-      c,
-      3.0,
-      Paint()..color = color,
-    );
+    canvas.drawCircle(c, 3.0, Paint()..color = color);
   }
 
   @override
@@ -1267,10 +1294,12 @@ Path _organicMask(Size size, Rect highlight, int seed) {
     final a = (i / n) * math.pi * 2;
     final jitter = 0.80 + rng.nextDouble() * 0.36;
     final lobe = 1.0 + 0.07 * math.sin(a * 3 + seed * 0.01);
-    pts.add(Offset(
-      cx + math.cos(a) * rx * jitter * lobe,
-      cy + math.sin(a) * ry * jitter * lobe,
-    ));
+    pts.add(
+      Offset(
+        cx + math.cos(a) * rx * jitter * lobe,
+        cy + math.sin(a) * ry * jitter * lobe,
+      ),
+    );
   }
   final path = Path();
   if (pts.isEmpty) return path;
@@ -1343,11 +1372,11 @@ class _ExplainableAiCard extends StatelessWidget {
   final VoidCallback onToggle;
 
   TextStyle get _subhead => GoogleFonts.inter(
-        fontSize: 12,
-        fontWeight: FontWeight.w700,
-        color: _Fx.muted,
-        letterSpacing: 0.4,
-      );
+    fontSize: 12,
+    fontWeight: FontWeight.w700,
+    color: _Fx.muted,
+    letterSpacing: 0.4,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -1400,8 +1429,9 @@ class _ExplainableAiCard extends StatelessWidget {
             ),
           ),
           AnimatedCrossFade(
-            crossFadeState:
-                expanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+            crossFadeState: expanded
+                ? CrossFadeState.showSecond
+                : CrossFadeState.showFirst,
             duration: const Duration(milliseconds: 240),
             firstChild: const SizedBox(width: double.infinity),
             secondChild: Padding(
@@ -1444,9 +1474,7 @@ class _ExplainableAiCard extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(f, style: _Fx.bodyStyle()),
-                          ),
+                          Expanded(child: Text(f, style: _Fx.bodyStyle())),
                         ],
                       ),
                     ),
@@ -1501,7 +1529,7 @@ class _AnalysisGrid extends StatelessWidget {
       ('Material', issue.forensicAffectedMaterial),
       ('Est. size', issue.forensicEstimatedSize),
       ('Detection', issue.forensicDetectionQuality),
-      ('Planning cost', issue.planningCostLabel),
+      (CostCopy.shortLabel, issue.planningCostLabel),
       ('Priority', '${issue.severity} · ${issue.surfaceTimeline}'),
     ];
 
@@ -1553,6 +1581,36 @@ class _AnalysisGrid extends StatelessWidget {
               ],
             );
           },
+        ),
+        const SizedBox(height: 10),
+        Text(
+          CostCopy.inlineNote,
+          style: GoogleFonts.inter(
+            fontSize: 12,
+            height: 1.4,
+            fontWeight: FontWeight.w500,
+            color: _Fx.muted,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          CostCopy.footnote,
+          style: GoogleFonts.inter(
+            fontSize: 12,
+            height: 1.4,
+            fontWeight: FontWeight.w500,
+            color: _Fx.muted,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          PrivacyCopy.screeningReminder,
+          style: GoogleFonts.inter(
+            fontSize: 12,
+            height: 1.4,
+            fontWeight: FontWeight.w500,
+            color: _Fx.muted,
+          ),
         ),
       ],
     );
@@ -1624,6 +1682,33 @@ class _LimitedVisibilityCard extends StatelessWidget {
   }
 }
 
+class _RelatedContextBanner extends StatelessWidget {
+  const _RelatedContextBanner({required this.issue});
+  final AnalysisIssue issue;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: BoxDecoration(
+        color: _Fx.amberMist,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _Fx.amberBorder),
+      ),
+      child: Text(
+        FindingRetakeService.relatedContextNote(issue),
+        style: GoogleFonts.inter(
+          fontSize: 13,
+          height: 1.4,
+          color: _Fx.amberBody,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+    );
+  }
+}
+
 class _AngleStrip extends StatelessWidget {
   const _AngleStrip({
     required this.angles,
@@ -1634,6 +1719,12 @@ class _AngleStrip extends StatelessWidget {
   final List<SurfaceEvidenceAngle> angles;
   final int selected;
   final ValueChanged<int> onSelect;
+
+  String _chipLabel(SurfaceEvidenceAngle a) {
+    if (a.isPrimary) return 'Primary · ${a.label}';
+    if (!a.supportsFinding) return 'Related · ${a.label}';
+    return a.label;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1679,7 +1770,7 @@ class _AngleStrip extends StatelessWidget {
                           ),
                           color: Colors.black.withValues(alpha: 0.55),
                           child: Text(
-                            a.label,
+                            _chipLabel(a),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: GoogleFonts.inter(
@@ -1726,8 +1817,8 @@ class _TimelineCard extends StatelessWidget {
     final changeColor = timeline.worsened
         ? _Fx.danger
         : timeline.improved
-            ? _Fx.success
-            : _Fx.body;
+        ? _Fx.success
+        : _Fx.body;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -1738,7 +1829,7 @@ class _TimelineCard extends StatelessWidget {
           Text('Evidence Timeline', style: _Fx.titleStyle()),
           const SizedBox(height: 4),
           Text(
-            'Approximate photo comparison across scans',
+            'Approximate alignment of the same exterior surface across scans',
             style: _Fx.mutedStyle(),
           ),
           const SizedBox(height: 12),
@@ -1833,8 +1924,12 @@ class _SplitClipper extends CustomClipper<Rect> {
   final double split;
 
   @override
-  Rect getClip(Size size) =>
-      Rect.fromLTWH(size.width * split, 0, size.width * (1 - split), size.height);
+  Rect getClip(Size size) => Rect.fromLTWH(
+    size.width * split,
+    0,
+    size.width * (1 - split),
+    size.height,
+  );
 
   @override
   bool shouldReclip(covariant _SplitClipper old) => old.split != split;
@@ -1866,9 +1961,9 @@ class _TimelinePlaceholder extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              'Scan again later to compare this surface over time. '
-              'FirstSign can show whether the estimated region grew, '
-              'stabilized, or improved.',
+              'No prior photo of this area yet. Scan this same surface again '
+              'later to compare — First Sign only pairs photos of the same '
+              'exterior area.',
               style: _Fx.bodyStyle(size: 13, height: 1.45),
             ),
           ),

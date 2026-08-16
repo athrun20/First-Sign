@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 
+import '../legal/cost_copy.dart';
 import '../legal/privacy_copy.dart';
 import 'twin_zone.dart';
 
@@ -57,41 +58,31 @@ class AnalysisIssue {
     return true;
   }
 
+  /// True when a highlight should be drawn (localized or strong zone fallback).
+  ///
+  /// Weak / closer-photo findings without Vision boxes skip the overlay so
+  /// surface evidence does not invent a generic zone estimate. Zone estimates
+  /// are reserved for High-severity, high-confidence calls only.
+  bool get shouldShowSurfaceHighlight {
+    if (hasLocalizedHighlight) return true;
+    if (needsCloserPhoto) return false;
+    if (severity != 'High') return false;
+    if (confidence < 86) return false;
+    return true;
+  }
+
   /// Cost string with planning-range framing for UI.
   ///
   /// Weak-evidence findings withhold a dollar range so reports stay trustworthy.
   String get planningCostLabel {
-    final c = cost.trim();
-    if (c.isEmpty ||
-        c.toUpperCase() == 'TBD' ||
-        c.toLowerCase().startsWith('tbd')) {
-      if (needsCloserPhoto || confidence < 70) {
-        return 'Planning range withheld — weak photo evidence';
-      }
-      if (severity == 'Low') {
-        return 'Planning range withheld — low-severity screening note';
-      }
-      return 'Planning range: TBD (confirm on-site)';
-    }
-    if (c.toLowerCase().contains('planning')) return c;
-    return 'Planning range $c (screening estimate, not a bid)';
+    if (CostCopy.isWithheldRange(cost)) return CostCopy.withheld;
+    return CostCopy.labeled(cost);
   }
 
   String get sourcePhotoDisplay {
     if (sourcePhotoLabel.trim().isNotEmpty) return sourcePhotoLabel.trim();
     if (photoIndex != null) return 'Photo ${photoIndex! + 1}';
     return 'Capture set';
-  }
-
-  double get severityLevel {
-    switch (severity) {
-      case 'High':
-        return 0.9;
-      case 'Medium':
-        return 0.6;
-      default:
-        return 0.3;
-    }
   }
 
   int get severityRank {
@@ -124,6 +115,12 @@ class AnalysisIssue {
     final t = title.trim();
     if (t.isEmpty) return 'Exterior screening note';
     final lower = t.toLowerCase();
+
+    // Rewrite engine classification labels before the "already hedged" path.
+    // "Roof Surface Wear / Possible Impact" contains "possible" but is not a
+    // homeowner-friendly title.
+    final classified = _friendlyClassificationTitle(lower);
+    if (classified != null) return classified;
 
     // Already hedged.
     if (lower.contains('possible') ||
@@ -165,6 +162,46 @@ class AnalysisIssue {
     return t;
   }
 
+  /// Maps dense engine titles onto calm homeowner language.
+  static String? _friendlyClassificationTitle(String lower) {
+    if (lower.contains('limited visibility') ||
+        lower.contains('closer photo needed')) {
+      return 'Need a clearer close-up';
+    }
+    if (lower.contains('roof surface wear') ||
+        (lower.contains('roof') &&
+            lower.contains('possible impact') &&
+            !lower.contains('gutter'))) {
+      return 'Possible roof surface damage';
+    }
+    if (lower.contains('granule') &&
+        (lower.contains('roof') || lower.contains('shingle'))) {
+      return 'Possible roof granule loss';
+    }
+    return null;
+  }
+
+  /// Compact location for cards — secondary to the title.
+  String get shortLocation {
+    final loc = location.trim();
+    if (loc.isEmpty ||
+        loc.toLowerCase() == 'general area' ||
+        loc.toLowerCase() == 'capture set') {
+      return sourcePhotoDisplay;
+    }
+    if (loc.length <= 36) return loc;
+    final cut = loc.split(RegExp('[·—–.]')).first.trim();
+    if (cut.isNotEmpty && cut.length <= 40) return cut;
+    return '${loc.substring(0, 34).trim()}…';
+  }
+
+  /// Compact planning-range chip (directional only — not a bid).
+  String get shortPlanningRange {
+    if (CostCopy.isWithheldRange(cost)) return CostCopy.withheld;
+    final cleaned = CostCopy.stripDecorations(cost);
+    return cleaned.isEmpty ? CostCopy.withheld : cleaned;
+  }
+
   /// Plain-language finding name for story sentences.
   String get storyTitle {
     final t = title.trim();
@@ -172,56 +209,88 @@ class AnalysisIssue {
   }
 
   /// What we found — short, homeowner-friendly (screening tone).
+  ///
+  /// Kept brief for the findings card; full context lives in surface evidence.
   String get storyWhat {
-    final loc = location.trim().isEmpty ? 'the exterior' : location.trim();
-    final photo = sourcePhotoDisplay;
-    final base = '$storyTitle at $loc';
-    final from = photo.isNotEmpty && photo != 'Capture set'
-        ? ' (from $photo)'
-        : '';
+    final name = homeownerTitle.trim().isEmpty
+        ? storyTitle
+        : homeownerTitle.trim();
+    final loc = location.trim();
+    final locBit = loc.isEmpty ||
+            loc.toLowerCase() == 'general area' ||
+            loc.toLowerCase() == 'capture set'
+        ? ''
+        : _shortLocationBit(loc);
+
     if (needsCloserPhoto) {
-      return '$base$from. Screening note only — confidence $confidence%; a sharper close-up would firm up this call.';
+      return '$name$locBit. Needs a clearer close-up before treating this as firm.';
     }
     if (confidence >= 85) {
-      return '$base$from. Photo cues support this screening finding (confidence $confidence%).';
+      return '$name$locBit. Photo cues support this screening note.';
     }
     if (confidence >= 70) {
-      return '$base$from. Screening signals are usable for planning (confidence $confidence%), with normal photo limits.';
+      return '$name$locBit. Useful for planning — screening only, not a diagnosis.';
     }
-    return '$base$from. Watch item only (confidence $confidence%) until a closer look confirms it.';
+    return '$name$locBit. Watch item until a closer look confirms it.';
+  }
+
+  /// Compact location phrase for [storyWhat] (no long technical strings).
+  static String _shortLocationBit(String loc) {
+    final l = loc.trim();
+    if (l.length <= 28) return ' · $l';
+    // Prefer first clause before em dash / period.
+    final cut = l.split(RegExp('[·—–.]')).first.trim();
+    if (cut.isNotEmpty && cut.length <= 32) return ' · $cut';
+    return ' · ${l.substring(0, 26).trim()}…';
   }
 
   /// Ground-level downspout / outlet finding (not roof-edge gutter clogging).
   bool get isGroundDrainageFinding {
     final key = '${title.toLowerCase()} ${location.toLowerCase()}';
+    // Paint / siding near eaves is not a drainage finding.
+    if (_isPaintOrSidingFindingKey(key)) return false;
     if (key.contains('dumping near foundation') ||
         key.contains('near foundation') ||
         key.contains('soil at grade') ||
         key.contains('ground outlets') ||
-        key.contains('water leaving near')) {
+        key.contains('water leaving near') ||
+        key.contains('water may be dumping')) {
       return true;
     }
-    final ground = key.contains('downspout') ||
+    final ground =
+        key.contains('downspout') ||
         key.contains('outlet') ||
         key.contains('discharge') ||
         key.contains('at grade');
-    final eave = key.contains('eave') ||
-        key.contains('roof edge') ||
+    final eaveOverflow =
         key.contains('overflow') ||
-        key.contains('clog');
-    return ground && !eave;
+        key.contains('clog') ||
+        (key.contains('gutter') && key.contains('roof edge'));
+    return ground && !eaveOverflow;
   }
 
   /// Roof-edge gutter / overflow finding.
+  ///
+  /// Bare "eave" in a paint location must not classify as drainage.
   bool get isEaveGutterFinding {
     final key = '${title.toLowerCase()} ${location.toLowerCase()}';
     if (isGroundDrainageFinding) return false;
+    if (_isPaintOrSidingFindingKey(key)) return false;
     return key.contains('gutter') ||
-        key.contains('eave') ||
         key.contains('overflow') ||
         key.contains('clog') ||
         key.contains('roof edge') ||
-        (key.contains('drainage') && !key.contains('foundation'));
+        (key.contains('drainage') && !key.contains('foundation')) ||
+        (key.contains('downspout') && !key.contains('paint'));
+  }
+
+  static bool _isPaintOrSidingFindingKey(String key) {
+    return key.contains('paint') ||
+        key.contains('peel') ||
+        key.contains('coating') ||
+        key.contains('mismatched') ||
+        (key.contains('siding') && !key.contains('gutter')) ||
+        (key.contains('cladding') && !key.contains('gutter'));
   }
 
   /// Why it matters / impact if delayed.
@@ -231,11 +300,19 @@ class AnalysisIssue {
       if (isGroundDrainageFinding) {
         return 'Water that leaves too close to the house can wet the foundation, stain siding, and feed damp basements.';
       }
+      // Paint/siding before bare "eave" — location may say "trim & eaves".
+      if (key.contains('paint') || key.contains('peel') || key.contains('coating')) {
+        return 'Failed coatings leave substrate open to UV and rain, accelerating future siding repairs.';
+      }
       if (isEaveGutterFinding ||
           key.contains('gutter') ||
           key.contains('downspout') ||
-          key.contains('eave') ||
-          key.contains('overflow')) {
+          key.contains('overflow') ||
+          (key.contains('eave') &&
+              (key.contains('gutter') ||
+                  key.contains('overflow') ||
+                  key.contains('clog') ||
+                  key.contains('drainage')))) {
         return 'Poor drainage can wet the foundation line, stain siding, and soften fascia.';
       }
       if (key.contains('roof') ||
@@ -252,9 +329,6 @@ class AnalysisIssue {
           key.contains('seal') ||
           key.contains('caulk')) {
         return 'Failed seals invite drafts and hidden water at the rough opening.';
-      }
-      if (key.contains('paint') || key.contains('peel')) {
-        return 'Failed coatings leave substrate open to UV and rain, accelerating future siding repairs.';
       }
       if (key.contains('mismatched') ||
           key.contains('patched') ||
@@ -283,7 +357,7 @@ class AnalysisIssue {
       if (key.contains('vegetation')) {
         return 'Growth against the structure holds moisture on cladding and can lift roof edges over time.';
       }
-      return 'Left alone, small exterior openings tend to grow with seasons and raise repair cost.';
+      return 'Left alone, small exterior openings tend to grow with seasons and raise later repair scope.';
     }();
 
     final urgency = switch (severity) {
@@ -322,9 +396,30 @@ class AnalysisIssue {
     };
   }
 
-  /// Structured story body for cards (What → Impact → Next).
-  String get storyNarrative {
-    return '$storyWhat\n\n$storyImpact\n\n$storyRecommendation';
+  /// FirstSign AI next-step line for finding cards — does not repeat the title.
+  String get companionNextStep {
+    if (needsCloserPhoto) {
+      return 'A closer, well-lit photo would raise confidence before treating this as firm.';
+    }
+    if (confidence < 70) {
+      return 'Viewing conditions limit confidence. Confirm on-site before scheduling work.';
+    }
+    final steps = surfaceRepairSteps;
+    final first = steps.isEmpty ? '' : steps.first.trim();
+    if (first.isNotEmpty) {
+      return switch (severity) {
+        'High' => 'Consider addressing this soon: $first',
+        'Medium' => 'Plan this with seasonal exterior work: $first',
+        _ => 'Monitor and bundle when convenient: $first',
+      };
+    }
+    return switch (severity) {
+      'High' =>
+        'A qualified exterior pro can confirm this from the photo evidence.',
+      'Medium' =>
+        'Worth planning this season. Photo screening only — confirm on-site.',
+      _ => 'No rush. Recheck after weather or with routine maintenance.',
+    };
   }
 
   /// Single-paragraph insight for dense places (PDF lines, history).
@@ -340,9 +435,8 @@ class AnalysisIssue {
       storyWhat,
       storyImpact,
       storyRecommendation,
-      if (showCost) 'Planning cost range: $cost (not a contractor bid).',
-      if (!showCost && (needsCloserPhoto || confidence < 70))
-        'Planning cost withheld until photo evidence is stronger.',
+      if (showCost) '${CostCopy.labeled(cost)}. ${CostCopy.inlineNote}',
+      if (!showCost && (needsCloserPhoto || confidence < 70)) CostCopy.withheld,
     ];
     return parts.join(' ');
   }
@@ -350,15 +444,26 @@ class AnalysisIssue {
   /// Map finding → digital twin zone for filtering / markers.
   TwinZone get twinZone {
     final key = '${title.toLowerCase()} ${location.toLowerCase()}';
+    // Paint / cladding before bare "eave"/"fascia" location words.
+    if (_isPaintOrSidingFindingKey(key) &&
+        !isGroundDrainageFinding &&
+        !isEaveGutterFinding) {
+      return TwinZone.siding;
+    }
     // Drainage before roof — "roof edge / gutters" is gutters, not shingles.
     if (isGroundDrainageFinding ||
         isEaveGutterFinding ||
         key.contains('gutter') ||
         key.contains('downspout') ||
-        key.contains('eave') ||
-        key.contains('fascia') ||
-        key.contains('soffit') ||
-        key.contains('overflow')) {
+        key.contains('overflow') ||
+        (key.contains('eave') &&
+            (key.contains('gutter') ||
+                key.contains('overflow') ||
+                key.contains('clog') ||
+                key.contains('drainage'))) ||
+        ((key.contains('fascia') || key.contains('soffit')) &&
+            !key.contains('paint') &&
+            !key.contains('peel'))) {
       return TwinZone.gutters;
     }
     if (key.contains('roof') ||
@@ -393,30 +498,6 @@ class AnalysisIssue {
       return TwinZone.siding;
     }
     return TwinZone.siding;
-  }
-
-  /// Prefer a readable story over a dense machine insight when showing UI copy.
-  String get displayInsight {
-    final raw = insight.trim();
-    // Old dense insights with "Evidence:" / "Reasoning:" — replace with story form.
-    if (raw.isEmpty ||
-        raw.contains('Evidence:') ||
-        raw.contains('Reasoning:') ||
-        raw.contains('Why it matters:') ||
-        raw.length > 420) {
-      return storyNarrative;
-    }
-    // Already human-readable — still append impact + next if missing.
-    final lower = raw.toLowerCase();
-    final buf = StringBuffer(raw);
-    if (!raw.endsWith('.') && !raw.endsWith('!')) buf.write('.');
-    if (!lower.contains('impact') && !lower.contains('if delayed')) {
-      buf.write('\n\n$storyImpact');
-    }
-    if (!lower.contains('recommend') && !lower.contains('next step')) {
-      buf.write('\n\n$storyRecommendation');
-    }
-    return buf.toString();
   }
 
   AnalysisIssue copyWith({
@@ -464,11 +545,18 @@ class AnalysisIssue {
     if (isGroundDrainageFinding) {
       return 'Downspout / ground outlet';
     }
+    if (key.contains('paint') || key.contains('peel') || key.contains('coating')) {
+      return 'Paint / coating';
+    }
     if (isEaveGutterFinding ||
         key.contains('gutter') ||
         key.contains('downspout') ||
-        key.contains('eave') ||
-        key.contains('overflow')) {
+        key.contains('overflow') ||
+        (key.contains('eave') &&
+            (key.contains('gutter') ||
+                key.contains('overflow') ||
+                key.contains('clog') ||
+                key.contains('drainage')))) {
       return 'Gutter / roof edge';
     }
     if (key.contains('roof') ||
@@ -495,7 +583,6 @@ class AnalysisIssue {
       return 'Wall / wiring';
     }
     if (key.contains('siding') ||
-        key.contains('paint') ||
         key.contains('wall') ||
         key.contains('mismatched') ||
         key.contains('patched')) {
@@ -522,14 +609,6 @@ class AnalysisIssue {
       default:
         return 'Plan into next maintenance cycle';
     }
-  }
-
-  /// Confidence band label for the surface-evidence meter (screening framing).
-  String get surfaceConfidenceLabel {
-    if (needsCloserPhoto || confidence < 70) return 'Needs closer photos';
-    if (confidence >= 85) return 'Strong screening signal';
-    if (confidence >= 70) return 'Solid screening signal';
-    return 'Limited screening signal';
   }
 
   // ── Forensic Surface Evidence (premium analysis panel) ───────────────────
@@ -566,7 +645,8 @@ class AnalysisIssue {
   /// Factors that can reduce model certainty (honest XAI).
   List<String> get forensicConfidenceLimiters {
     final out = <String>[];
-    final key = '${title.toLowerCase()} ${location.toLowerCase()} ${insight.toLowerCase()}';
+    final key =
+        '${title.toLowerCase()} ${location.toLowerCase()} ${insight.toLowerCase()}';
     if (needsCloserPhoto) {
       out.add('Too far away or soft focus — hard to see surface detail');
     }
@@ -582,14 +662,18 @@ class AnalysisIssue {
         key.contains('leaf')) {
       out.add('Plants near the house can hide or look like surface damage');
     }
-    if (key.contains('angle') || key.contains('oblique') || !hasLocalizedHighlight) {
+    if (key.contains('angle') ||
+        key.contains('oblique') ||
+        !hasLocalizedHighlight) {
       out.add('Camera angle — the marked area is an estimate, not a survey');
     }
     if (!hasLocalizedHighlight) {
       out.add('Rough area only — not a tight box around a clear object');
     }
     if (isGroundDrainageFinding &&
-        (key.contains('eave') || key.contains('overflow') || key.contains('clog'))) {
+        (key.contains('eave') ||
+            key.contains('overflow') ||
+            key.contains('clog'))) {
       out.add('Ground-level photo — not proof of a clogged roof gutter');
     }
     if (out.isEmpty) {
@@ -612,6 +696,13 @@ class AnalysisIssue {
     if (key.contains('crack') && key.contains('foundation')) {
       return 'Possible foundation crack';
     }
+    if (key.contains('window') &&
+        (key.contains('broken') ||
+            key.contains('shatter') ||
+            key.contains('glass') ||
+            key.contains('damaged'))) {
+      return 'Broken / damaged glazing';
+    }
     if (key.contains('crack') || key.contains('fracture')) {
       return 'Crack line';
     }
@@ -630,7 +721,9 @@ class AnalysisIssue {
     if (key.contains('rot') || key.contains('soft')) {
       return 'Soft or rotting wood';
     }
-    if (key.contains('stain') || key.contains('moisture') || key.contains('mold')) {
+    if (key.contains('stain') ||
+        key.contains('moisture') ||
+        key.contains('mold')) {
       return 'Moisture staining';
     }
     if (key.contains('rust') || key.contains('corrosion')) {
@@ -654,6 +747,17 @@ class AnalysisIssue {
   /// Primary exterior material inferred from finding context.
   String get forensicAffectedMaterial {
     final key = '${title.toLowerCase()} ${location.toLowerCase()}';
+    // Drainage first — "roof edge / gutters" must not become "Roof covering".
+    if (isGroundDrainageFinding) {
+      return 'Downspout outlet / grade';
+    }
+    if (isEaveGutterFinding ||
+        key.contains('gutter') ||
+        key.contains('downspout') ||
+        key.contains('overflow') ||
+        key.contains('drainage')) {
+      return 'Gutter / downspout';
+    }
     if (key.contains('shingle') || key.contains('asphalt')) {
       return 'Asphalt shingle';
     }
@@ -669,17 +773,15 @@ class AnalysisIssue {
     if (key.contains('brick') || key.contains('masonry')) {
       return 'Masonry / brick';
     }
-    if (key.contains('wood') || key.contains('trim') || key.contains('fascia')) {
+    if (key.contains('wood') ||
+        key.contains('trim') ||
+        key.contains('fascia')) {
       return 'Wood trim / fascia';
     }
-    if (key.contains('siding') || key.contains('paint') || key.contains('wall')) {
+    if (key.contains('siding') ||
+        key.contains('paint') ||
+        key.contains('wall')) {
       return 'Exterior cladding';
-    }
-    if (isGroundDrainageFinding) {
-      return 'Downspout outlet / grade';
-    }
-    if (key.contains('gutter') || key.contains('downspout')) {
-      return 'Gutter / downspout';
     }
     if (key.contains('window') || key.contains('glass')) {
       return 'Window assembly';
@@ -719,7 +821,9 @@ class AnalysisIssue {
     final key = '${title.toLowerCase()} ${location.toLowerCase()}';
     // Assumed real-world span of the photo FOV (feet) by system.
     final double spanFt;
-    if (key.contains('roof') || key.contains('shingle') || key.contains('ridge')) {
+    if (key.contains('roof') ||
+        key.contains('shingle') ||
+        key.contains('ridge')) {
       spanFt = 32;
     } else if (key.contains('foundation') || key.contains('grade')) {
       spanFt = 28;
@@ -780,8 +884,31 @@ class AnalysisIssue {
   List<String> get forensicVisualCues {
     final key = '${title.toLowerCase()} ${location.toLowerCase()}';
     final cues = <String>[];
-    // Drainage first — "roof edge / gutters" must not fall into roof-shingle cues.
-    if (isGroundDrainageFinding) {
+    // Paint / cladding BEFORE bare "eave" matches — paint locations often say
+    // "trim & eaves" and must never inherit gutter overflow chips.
+    if (_isPaintOrSidingFindingKey(key) &&
+        !isGroundDrainageFinding &&
+        !isEaveGutterFinding) {
+      if (key.contains('paint') ||
+          key.contains('peel') ||
+          key.contains('coating') ||
+          key.contains('film')) {
+        cues.addAll(const [
+          'Paint that is peeling or flaking',
+          'Bare wood or substrate under failed coating',
+          'Blistered or lifted film on wall or trim',
+          'Discolored patches where coating is wearing thin',
+        ]);
+      } else {
+        cues.addAll(const [
+          'Color that does not match nearby boards',
+          'Boards that look warped or lifted at the edge',
+          'Discolored patches on the wall',
+          'Uneven joints or patch lines on cladding',
+        ]);
+      }
+    } else if (isGroundDrainageFinding) {
+      // Drainage first — "roof edge / gutters" must not fall into roof cues.
       cues.addAll(const [
         'Pipes or downspout ends near the ground',
         'Wet or muddy soil near the foundation',
@@ -791,9 +918,13 @@ class AnalysisIssue {
     } else if (isEaveGutterFinding ||
         key.contains('gutter') ||
         key.contains('downspout') ||
-        key.contains('eave') ||
         key.contains('overflow') ||
-        key.contains('drainage')) {
+        (key.contains('eave') &&
+            (key.contains('gutter') ||
+                key.contains('overflow') ||
+                key.contains('clog') ||
+                key.contains('drainage'))) ||
+        (key.contains('drainage') && !_isPaintOrSidingFindingKey(key))) {
       cues.addAll(const [
         'Uneven or stained spots along the gutter line',
         'Marks that may mean water spilled over the edge',
@@ -807,13 +938,6 @@ class AnalysisIssue {
         'Color that does not match nearby shingles',
         'Darker patches that may mean wear or exposure',
       ]);
-    } else if (key.contains('siding') || key.contains('paint') || key.contains('peel')) {
-      cues.addAll(const [
-        'Paint that is peeling or flaking',
-        'Color that does not match nearby boards',
-        'Boards that look warped or lifted at the edge',
-        'Discolored patches on the wall',
-      ]);
     } else if (key.contains('foundation') || key.contains('crack')) {
       cues.addAll(const [
         'A crack line near the base of the wall',
@@ -821,13 +945,28 @@ class AnalysisIssue {
         'Broken texture in concrete or masonry',
         'Damp-looking stains near the ground',
       ]);
-    } else if (key.contains('window') || key.contains('seal')) {
-      cues.addAll(const [
-        'Gaps in the seal around the window',
-        'Stains under the sill or at the corners',
-        'Uneven gap along the frame',
-        'Caulk that looks cracked or missing',
-      ]);
+    } else if (key.contains('window') ||
+        key.contains('glass') ||
+        key.contains('glazing') ||
+        key.contains('seal')) {
+      if (key.contains('broken') ||
+          key.contains('shatter') ||
+          key.contains('cracked glass') ||
+          key.contains('damaged window')) {
+        cues.addAll(const [
+          'Broken or shattered glass in the opening',
+          'Sharp edges or missing pane sections',
+          'Damage focused on the window unit',
+          'Frame or sash that may be stressed near the break',
+        ]);
+      } else {
+        cues.addAll(const [
+          'Gaps in the seal around the window',
+          'Stains under the sill or at the corners',
+          'Uneven gap along the frame',
+          'Caulk that looks cracked or missing',
+        ]);
+      }
     } else if (key.contains('rust') || key.contains('corrosion')) {
       cues.addAll(const [
         'Orange or brown rust color on metal',
@@ -846,128 +985,124 @@ class AnalysisIssue {
   }
 
   /// Plain-English AI reasoning for the forensic panel (grounded claims only).
+  ///
+  /// Short enough to scan in the evidence sheet — retake / repair details live
+  /// in their own sections below.
   String get forensicAiReasoning {
     final cues = forensicVisualCues.take(2).join(', and ').toLowerCase();
-    final region = hasLocalizedHighlight
-        ? 'This photo shows a specific area'
-        : 'This photo shows a general area of the house (rough estimate)';
     final kind = forensicDamageType.toLowerCase();
     final material = forensicAffectedMaterial.toLowerCase();
-    return '$region that may relate to $kind on $material. '
+    final region = hasLocalizedHighlight
+        ? 'A marked area in the photo'
+        : 'A general area in the photo (rough zone only)';
+    final base =
+        '$region may relate to $kind on $material. '
         'What stood out: $cues. '
-        'This is photo screening only — it cannot see inside walls or measure depth. '
-        '${forensicConfidenceTitle == 'Limited Visibility' ? forensicRetakeAngleHint : storyRecommendation}';
+        'Photo screening only — not an inspection of hidden structure.';
+    if (forensicConfidenceTitle == 'Limited Visibility' || needsCloserPhoto) {
+      return '$base $forensicRetakeAngleHint';
+    }
+    return base;
   }
 
   /// Stable organic mask seed for contour generation (not a crude box).
   int get forensicMaskSeed =>
       Object.hash(title, location, highlightLeft, highlightTop, photoIndex);
 
-  /// Extra cost context for the surface-evidence cost card.
-  String get surfaceCostNote {
-    const disclaimer =
-        'Planning estimate only from photo screening — not a contractor bid. '
-        'Real cost depends on access, materials, and local labor.';
-    if (needsCloserPhoto ||
-        confidence < 70 ||
-        cost.trim().isEmpty ||
-        cost.toUpperCase() == 'TBD' ||
-        cost.toLowerCase().startsWith('tbd')) {
-      return 'No dollar range until photos are clearer. Retake a close-up or confirm on-site. $disclaimer';
-    }
-    switch (severity) {
-      case 'High':
-        return 'Fixing sooner often costs less than waiting for more water damage. $disclaimer';
-      case 'Medium':
-        return 'Mid-range planning estimate for scheduling — not a bid. $disclaimer';
-      default:
-        return 'Optional preventive range — easy to bundle with other exterior work. $disclaimer';
-    }
-  }
-
-  /// Why this finding matters — multi-part detail for surface evidence.
-  List<String> get surfaceWhyItMattersPoints {
-    final points = <String>[storyWhat];
-
-    final key = '${title.toLowerCase()} ${location.toLowerCase()}';
-    if (isGroundDrainageFinding) {
-      points.add(
-        'Water that leaves too close to the house can wet the foundation and stain the lower wall.',
-      );
-    } else if (isEaveGutterFinding ||
-        key.contains('gutter') ||
-        key.contains('downspout') ||
-        key.contains('eave') ||
-        key.contains('overflow') ||
-        key.contains('drainage')) {
-      points.add(
-        'Clogged or overflowing gutters can soak fascia boards and send water down the wall or toward the foundation.',
-      );
-    } else if (key.contains('roof') || key.contains('shingle')) {
-      points.add(
-        'Roof openings let water reach underlayment and decking, which can lead to leaks in ceilings and attic mold.',
-      );
-    } else if (key.contains('siding') ||
-        key.contains('paint') ||
-        key.contains('peel')) {
-      points.add(
-        'Failed coatings expose substrate to UV and moisture, accelerating rot and reducing insulation performance.',
-      );
-    } else if (key.contains('window') ||
-        key.contains('seal') ||
-        key.contains('caulk')) {
-      points.add(
-        'Failed seals invite drafts and water at the rough opening — a common source of hidden wall damage.',
-      );
-    } else if (key.contains('foundation') || key.contains('crack')) {
-      points.add(
-        'Foundation movement or water paths can worsen seasonally; early sealing and drainage fixes limit structural risk.',
-      );
-    } else if (key.contains('chimney') || key.contains('flash')) {
-      points.add(
-        'Flashing failures are a top exterior leak source and often show first as interior stains near the chimney.',
-      );
-    } else if (key.contains('rust') ||
-        key.contains('metal') ||
-        key.contains('corrosion')) {
-      points.add(
-        'Active corrosion weakens fasteners and flashings; staining can also mask underlying moisture issues.',
-      );
-    } else if (key.contains('fascia') ||
-        key.contains('soffit') ||
-        key.contains('rot')) {
-      points.add(
-        'Soft wood at the eaves is often fed by gutter leaks; replace material only after the water source is fixed.',
-      );
-    } else {
-      points.add(
-        'Exterior defects compound over seasons — small openings become larger repair scopes if water keeps entering.',
-      );
-    }
-
-    points.add(switch (severity) {
-      'High' =>
-        'Priority is high: delay raises the chance of interior damage and a much larger invoice.',
-      'Medium' =>
-        'Worth scheduling soon so wear does not spread to neighboring materials.',
-      _ =>
-        'Low urgency, but documenting and fixing early protects curb appeal and resale readiness.',
-    });
-
-    // De-dupe while preserving order.
-    final seen = <String>{};
-    return points.where(seen.add).toList();
-  }
-
   /// Practical repair checklist for the surface-evidence sheet.
+  ///
+  /// Order matters: paint/siding/roof must not fall into drainage steps just
+  /// because the location mentions "eave" or "roof edge".
   List<String> get surfaceRepairSteps {
     final t = '${title.toLowerCase()} ${location.toLowerCase()}';
+    final isPaint =
+        t.contains('paint') || t.contains('peel') || t.contains('coating');
+    final isSidingSurface =
+        t.contains('siding') ||
+        t.contains('cladding') ||
+        t.contains('mismatched') ||
+        t.contains('patched') ||
+        (t.contains('patch') && t.contains('board'));
+    final isRoofSurface =
+        t.contains('shingle') ||
+        t.contains('ridge') ||
+        (t.contains('roof') &&
+            !t.contains('roof edge') &&
+            !isEaveGutterFinding &&
+            !isGroundDrainageFinding);
+    final isBrokenGlass =
+        (t.contains('window') || t.contains('glass') || t.contains('glazing')) &&
+        (t.contains('broken') ||
+            t.contains('shatter') ||
+            t.contains('damaged window') ||
+            t.contains('damaged glass'));
+
+    // Broken glazing — not cladding board repairs.
+    if (isBrokenGlass) {
+      return const [
+        'Keep people and pets away from sharp glass until the opening is secured.',
+        'Temporary board or film the opening if weather is coming.',
+        'Schedule glass or full sash replacement with a licensed glazier.',
+        'Check the frame and seals for damage that let the pane fail.',
+      ];
+    }
+
+    // Paint / coating first — location may say "eaves" without being drainage.
+    if (isPaint && !isEaveGutterFinding && !isGroundDrainageFinding) {
+      return const [
+        'Scrape loose paint and sand to a firm feathered edge.',
+        'Wash the surface; spot-prime bare wood or fiber cement.',
+        'Apply two coats of exterior-grade finish matched to the elevation.',
+        'Caulk butt joints and trim so moisture cannot re-enter behind the coating.',
+      ];
+    }
+    if (isSidingSurface && !isEaveGutterFinding && !isGroundDrainageFinding) {
+      if (t.contains('mismatched') ||
+          t.contains('patched') ||
+          (t.contains('patch') && t.contains('siding'))) {
+        return const [
+          'Map the full color-block / replacement board area on that elevation.',
+          'Match course height, profile, and finish to the surrounding cladding where practical.',
+          'Seal board edges, butt joints, and penetrations after replacement.',
+          'Re-check the elevation after the next heavy rain for open seams.',
+        ];
+      }
+      // Crack / damaged cladding — never paint-scrape steps unless paint failure
+      // is the actual finding (handled above via isPaint).
+      if (t.contains('crack') ||
+          t.contains('damaged siding') ||
+          t.contains('damaged cladding') ||
+          (t.contains('damaged') && t.contains('siding'))) {
+        return const [
+          'Mark crack length and width on the damaged courses for a monitoring baseline.',
+          'Replace cracked boards or courses; do not only caulk over open cladding gaps.',
+          'Reseal butt joints, corners, and penetrations after the repair.',
+          'Recheck after the next heavy rain for water behind the wall assembly.',
+        ];
+      }
+      if (t.contains('moisture') || t.contains('stain') || t.contains('mildew')) {
+        return const [
+          'Soft-wash organic growth; keep pressure low on fiber cement and vinyl.',
+          'Trim vegetation and redirect irrigation spray off the wall face.',
+          'Check for leak paths at windows, flashing, and grade splash-back.',
+          'Recheck the elevation after drying for remaining dark blotches.',
+        ];
+      }
+      // Soft "Siding Condition Review" — inspect/monitor, not paint scrape.
+      return const [
+        'Walk the elevation and note buckling, open butt joints, or missing pieces.',
+        'Photograph problem courses straight-on in good light for a closer retake.',
+        'Keep soil and mulch below cladding; clear splash-back at the base.',
+        'Schedule a cladding pro if joints stay open or boards feel soft.',
+      ];
+    }
     if (isGroundDrainageFinding ||
         (t.contains('downspout') &&
             (t.contains('outlet') ||
                 t.contains('grade') ||
                 t.contains('foundation') ||
-                t.contains('dumping')))) {
+                t.contains('dumping'))) ||
+        t.contains('water may be dumping')) {
       return const [
         'After rain, check where water leaves the downspout or pipe.',
         'Extend outlets 4–6 ft from the foundation where practical.',
@@ -975,11 +1110,11 @@ class AnalysisIssue {
         'Make sure soil slopes away from the house so water does not pool.',
       ];
     }
+    // Gutter overflow only when this finding is drainage — not bare "eave" paint.
     if (isEaveGutterFinding ||
         t.contains('gutter') ||
-        t.contains('downspout') ||
-        t.contains('eave') ||
-        t.contains('overflow')) {
+        t.contains('overflow') ||
+        (t.contains('downspout') && !isPaint)) {
       return const [
         'Clear leaves and sediment from gutters, hangers, and downspout elbows.',
         'Confirm the gutter slopes toward the outlets; re-secure loose hangers.',
@@ -987,7 +1122,7 @@ class AnalysisIssue {
         'Add guards or schedule seasonal cleans if overflow keeps returning.',
       ];
     }
-    if (t.contains('roof') || t.contains('shingle') || t.contains('ridge')) {
+    if (isRoofSurface || t.contains('shingle') || t.contains('ridge')) {
       return const [
         'Walk (or drone) ridges, valleys, and windward slopes; note missing tabs and soft spots.',
         'Replace damaged shingles and inspect underlayment where wet or dark.',
@@ -1003,24 +1138,6 @@ class AnalysisIssue {
         'Photograph entry points, junctions, and where runs enter the wall.',
         'Have a licensed electrician secure, consolidate, or conduit-route surface runs.',
         'After re-routing, reseal wall penetrations against water intrusion.',
-      ];
-    }
-    if (t.contains('mismatched') ||
-        t.contains('patched') ||
-        (t.contains('patch') && t.contains('siding'))) {
-      return const [
-        'Map the full color-block / replacement board area on that elevation.',
-        'Match course height, profile, and finish to the surrounding cladding where practical.',
-        'Seal board edges, butt joints, and penetrations after replacement.',
-        'Re-check the elevation after the next heavy rain for open seams.',
-      ];
-    }
-    if (t.contains('siding') || t.contains('paint') || t.contains('peel')) {
-      return const [
-        'Scrape loose paint and sand to a firm feathered edge.',
-        'Wash the surface; spot-prime bare wood or fiber cement.',
-        'Apply two coats of exterior-grade finish matched to the elevation.',
-        'Caulk butt joints and trim so moisture cannot re-enter behind the coating.',
       ];
     }
     if (t.contains('window') || t.contains('seal') || t.contains('caulk')) {
@@ -1069,19 +1186,6 @@ class AnalysisIssue {
       'Repair or replace damaged material with exterior-rated products.',
       'Refinish and reseal; re-check after the next heavy rain.',
     ];
-  }
-
-  /// True when a highlight should be drawn (localized or strong zone fallback).
-  ///
-  /// Weak / closer-photo findings without Vision boxes skip the overlay so
-  /// surface evidence does not invent a generic zone estimate. Zone estimates
-  /// are reserved for High-severity, high-confidence calls only.
-  bool get shouldShowSurfaceHighlight {
-    if (hasLocalizedHighlight) return true;
-    if (needsCloserPhoto) return false;
-    if (severity != 'High') return false;
-    if (confidence < 86) return false;
-    return true;
   }
 
   /// Normalized highlight rect (0–1) for the surface-evidence photo overlay.
@@ -1194,6 +1298,24 @@ class AnalysisReport {
     required this.photoCount,
   });
 
+  AnalysisReport copyWith({
+    int? overallScore,
+    String? conditionLabel,
+    List<AnalysisIssue>? issues,
+    String? estimatedRepairRange,
+    String? analysisSource,
+    int? photoCount,
+  }) {
+    return AnalysisReport(
+      overallScore: overallScore ?? this.overallScore,
+      conditionLabel: conditionLabel ?? this.conditionLabel,
+      issues: issues ?? this.issues,
+      estimatedRepairRange: estimatedRepairRange ?? this.estimatedRepairRange,
+      analysisSource: analysisSource ?? this.analysisSource,
+      photoCount: photoCount ?? this.photoCount,
+    );
+  }
+
   int get highCount => issues.where((i) => i.severity == 'High').length;
   int get mediumCount => issues.where((i) => i.severity == 'Medium').length;
   int get lowCount => issues.where((i) => i.severity == 'Low').length;
@@ -1300,47 +1422,27 @@ class AnalysisReport {
   /// True when this report came from a single-photo / Quick Scan capture.
   bool get isSinglePhotoScan => photoCount == 1;
 
+  /// Presentation flag: a finding asked for a closer photo or is the
+  /// limited-visibility screening note. Does not change analysis.
+  bool get hasLimitedVisibility {
+    for (final issue in issues) {
+      if (issue.needsCloserPhoto) return true;
+      if (issue.title.toLowerCase().contains('limited visibility')) {
+        return true;
+      }
+      if (issue.forensicConfidenceTitle == 'Limited Visibility') return true;
+    }
+    return false;
+  }
+
   /// True when the report source indicates Google Cloud Vision was used.
   bool get usedCloudVision {
     final s = analysisSource.toLowerCase();
     return s.contains('vision') || s.contains('google cloud');
   }
 
-  /// True when analysis fell back to local multi-feature (no key / Vision error).
-  bool get usedLocalFallback {
-    final s = analysisSource.toLowerCase();
-    return s.contains('local') || s.contains('offline fallback');
-  }
-
   /// Short badge for UI / PDF when [isSinglePhotoScan].
   static const singlePhotoBadge = 'Quick Scan · single photo';
-
-  /// One calm, plain-language first impression for the score hero.
-  ///
-  /// Presentation only — does not change scoring or finding detection.
-  String get calmHeadline {
-    final lower = conditionLabel.toLowerCase();
-    if (lower.contains('insufficient exterior')) {
-      return 'These photos may not show a clear home exterior. '
-          'Try roof, wall, and foundation angles in good light.';
-    }
-    if (issues.isEmpty) {
-      return photoCount <= 1
-          ? 'Looking solid from this angle — nothing elevated to chase right now.'
-          : 'Looking solid overall — no high-priority exterior concerns from these photos.';
-    }
-    final top = topPriorityIssue;
-    final focus = top == null ? 'the priority item' : top.homeownerTitle;
-    if (highCount > 0) {
-      return 'Worth a closer look soon. Start with $focus.';
-    }
-    if (mediumCount > 0) {
-      return mediumCount == 1
-          ? 'One item to plan: $focus. Nothing looks like an emergency from these photos.'
-          : 'A few items to plan, starting with $focus. Nothing looks like an emergency from these photos.';
-    }
-    return 'Minor notes only. Overall condition looks fine from this screening.';
-  }
 
   /// Short condition line under the score (no engine jargon).
   String get calmConditionLine {
@@ -1354,9 +1456,36 @@ class AnalysisReport {
           : 'Solid exterior condition';
     }
     if (highCount > 0) return 'Needs attention this season';
-    if (mediumCount >= 2) return 'Fair — plan some exterior work';
+    if (mediumCount >= 2) return 'Stable — plan some exterior work';
     if (mediumCount == 1) return 'Generally sound · one item to plan';
     return 'Generally sound · minor notes only';
+  }
+
+  /// Distinct house areas (twin zones) with a High or Medium finding.
+  int get monitorAreaCount {
+    final zones = <TwinZone>{
+      for (final i in issues)
+        if (i.severity != 'Low' && i.twinZone != TwinZone.none) i.twinZone,
+    };
+    if (zones.isNotEmpty) return zones.length;
+    return issues.where((i) => i.severity != 'Low').length;
+  }
+
+  /// Compact "what matters" line under the score — not a second findings list.
+  String get monitorContextLine {
+    if (highCount + mediumCount == 0) {
+      return issues.isEmpty ? 'No areas to monitor' : 'Minor notes only';
+    }
+    final n = monitorAreaCount;
+    return n == 1 ? '1 area to monitor' : '$n areas to monitor';
+  }
+
+  /// Calm trust line for the Home Health hero.
+  String get photoTrustLine {
+    if (highCount == 0) {
+      return 'No urgent concerns detected · Based on the photos provided';
+    }
+    return 'Worth a closer look · Based on the photos provided';
   }
 
   /// Chapter 2 — highest priority focus.
@@ -1405,14 +1534,26 @@ class AnalysisReport {
     final ranked = issuesByPriority;
     final buf = StringBuffer('Recommendations: ');
     // Concrete, finding-specific next steps for the top 1–2 items.
+    // Always name the finding so paint does not read as gutter advice.
     for (var i = 0; i < ranked.length && i < 2; i++) {
       final issue = ranked[i];
       if (i > 0) buf.write(' Next: ');
-      buf.write(
-        issue.storyRecommendation
-            .replaceFirst('Recommended: ', '')
-            .replaceFirst('Recommended ', ''),
-      );
+      final name = issue.homeownerTitle.trim();
+      final step = issue.storyRecommendation
+          .replaceFirst('Recommended: ', '')
+          .replaceFirst(
+            RegExp(
+              '^Recommended (this week|soon|in the next maintenance cycle) for .+?: ',
+            ),
+            '',
+          )
+          .replaceFirst(RegExp('^Recommended .+?: '), '')
+          .trim();
+      if (name.isNotEmpty) {
+        buf.write('For $name — $step');
+      } else {
+        buf.write(step);
+      }
       if (!buf.toString().trimRight().endsWith('.')) buf.write('.');
     }
     final closer = issues.where((i) => i.needsCloserPhoto).length;
@@ -1443,12 +1584,12 @@ class AnalysisReport {
         ? 'TBD'
         : estimatedRepairRange.trim();
     if (conditionLabel.toLowerCase().contains('insufficient exterior')) {
-      return 'Impact: no exterior repair scope from this set. Planning range not estimated. Capture true exterior elevations first.';
+      return 'Impact: no exterior repair scope from this set. ${CostCopy.withheld}. Capture true exterior elevations first.';
     }
     if (issues.isEmpty) {
       return photoCount == 1
-          ? 'Impact: no elevated repair scope from this single angle. Planning range $range. Reassess with more elevations if weather events or new symptoms appear.'
-          : 'Impact: no elevated repair scope from this scan. Planning range $range. Reassess if weather events or new symptoms appear.';
+          ? 'Impact: no elevated repair scope from this single angle. ${CostCopy.labeled(range)}. ${CostCopy.inlineNote} Reassess with more elevations if weather events or new symptoms appear.'
+          : 'Impact: no elevated repair scope from this scan. ${CostCopy.labeled(range)}. ${CostCopy.inlineNote} Reassess if weather events or new symptoms appear.';
     }
 
     final systems = <String>{};
@@ -1483,9 +1624,9 @@ class AnalysisReport {
         ? 'Medium issues on $systemBit rarely fail overnight, but they quietly expand repair scope over a season or two.'
         : 'Impact stays limited on $systemBit if you maintain coatings, seals, and drainage on a normal cycle.';
 
-    final costBit = range.toUpperCase().startsWith('TBD')
-        ? 'Combined planning range is withheld or TBD until stronger photo evidence supports dollar estimates ($range).'
-        : 'Combined planning range for confidence-qualified findings is $range (not a bid — access, materials, and local labor set the real price).';
+    final costBit = CostCopy.isWithheldRange(range)
+        ? CostCopy.withheld
+        : 'Combined ${CostCopy.labeled(range)}. ${CostCopy.inlineNote}';
 
     final coverageBit = photoCount == 1
         ? ' Single-photo confidence is limited to this angle.'
@@ -1501,11 +1642,6 @@ class AnalysisReport {
     (title: 'Recommendations', body: recommendationStory),
     (title: 'Impact', body: impactStory),
   ];
-
-  /// Compact executive summary (one block).
-  String get executiveSummary {
-    return storyChapters.map((c) => '${c.title}: ${c.body}').join('\n\n');
-  }
 
   /// Screening disclaimer for UI + PDF (not a licensed inspection).
   /// Canonical text lives in [PrivacyCopy] so all surfaces stay aligned.

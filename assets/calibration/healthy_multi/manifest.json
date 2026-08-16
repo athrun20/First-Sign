@@ -1,0 +1,33 @@
+{
+  "id": "healthy_multi",
+  "title": "Healthy multi-angle control home",
+  "photos": [
+    { "file": "00_front.jpg", "slot": "front", "label": "Front of home" },
+    { "file": "01_left.jpg", "slot": "left", "label": "Left side" },
+    { "file": "02_right.jpg", "slot": "right", "label": "Right side" },
+    { "file": "03_rear.jpg", "slot": "rear", "label": "Rear of home" }
+  ],
+  "expected": {
+    "maxFindings": 12,
+    "allowedCategories": [
+      "paint",
+      "siding",
+      "roof",
+      "gutter",
+      "drainage",
+      "foundation",
+      "window",
+      "vegetation",
+      "general",
+      "rust",
+      "chimney",
+      "wiring"
+    ],
+    "forbiddenCategories": [],
+    "scoreMin": 55,
+    "scoreMax": 98,
+    "maxSeverity": "Medium",
+    "needsCloserPhotoOk": true
+  },
+  "notes": "Control set — clean multi-angle exteriors. Prefer local field photos when available. Seeded from healthy_multi_angle stock set."
+}

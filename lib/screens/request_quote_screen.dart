@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../legal/cost_copy.dart';
 import '../legal/privacy_copy.dart';
 import '../models/analysis_models.dart';
 import '../models/capture_models.dart';
@@ -100,7 +101,9 @@ class _RequestQuoteScreenState extends State<RequestQuoteScreen> {
             bytes: bytes,
           ),
         );
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('Quote photo compress skipped: $e');
+      }
     }
     return out;
   }
@@ -152,13 +155,12 @@ class _RequestQuoteScreenState extends State<RequestQuoteScreen> {
     required bool deliveredRemotely,
   }) async {
     if (!mounted) return;
+    final screen = QuoteConfirmationScreen(
+      lead: lead,
+      deliveredRemotely: deliveredRemotely,
+    );
     await Navigator.of(context).pushReplacement(
-      MaterialPageRoute<void>(
-        builder: (_) => QuoteConfirmationScreen(
-          lead: lead,
-          deliveredRemotely: deliveredRemotely,
-        ),
-      ),
+      MaterialPageRoute<void>(builder: (_) => screen),
     );
   }
 
@@ -217,9 +219,7 @@ class _RequestQuoteScreenState extends State<RequestQuoteScreen> {
               label: 'Done',
               textColor: Colors.white,
               onPressed: () {
-                unawaited(
-                  _goToConfirmation(lead, deliveredRemotely: false),
-                );
+                unawaited(_goToConfirmation(lead, deliveredRemotely: false));
               },
             ),
           ),
@@ -354,7 +354,7 @@ class _RequestQuoteScreenState extends State<RequestQuoteScreen> {
                         ),
                       ),
                       child: Text(
-                        'Email is on. Your request will notify the FirstSign team '
+                        'Email is on. Your request will notify the First Sign team '
                         '(${QuoteSubmitConfig.destinationEmail}) and save a local lead.',
                         style: GoogleFonts.inter(
                           fontSize: 13,
@@ -371,7 +371,7 @@ class _RequestQuoteScreenState extends State<RequestQuoteScreen> {
                   AppLux.sectionHeader('Your details'),
                   const SizedBox(height: 8),
                   Text(
-                    'Prefills from your profile when available. FirstSign keeps a '
+                    'Prefills from your profile when available. First Sign keeps a '
                     'copy on this device after you submit.',
                     style: GoogleFonts.inter(
                       fontSize: 13,
@@ -543,9 +543,8 @@ class _RequestQuoteScreenState extends State<RequestQuoteScreen> {
                       : 'Save lead on this device',
                   onPressed: _submitting
                       ? null
-                      : () => _submit(
-                          localOnly: !QuoteSubmitConfig.isConfigured,
-                        ),
+                      : () =>
+                            _submit(localOnly: !QuoteSubmitConfig.isConfigured),
                 ),
                 if (QuoteSubmitConfig.isConfigured) ...[
                   const SizedBox(height: 8),
@@ -952,9 +951,7 @@ class _ReportSummaryCard extends StatelessWidget {
                             borderRadius: BorderRadius.circular(16),
                             boxShadow: [
                               BoxShadow(
-                                color: AppLux.charcoal.withValues(
-                                  alpha: 0.14,
-                                ),
+                                color: AppLux.charcoal.withValues(alpha: 0.14),
                                 blurRadius: 14,
                                 offset: const Offset(0, 5),
                               ),
@@ -1000,9 +997,7 @@ class _ReportSummaryCard extends StatelessWidget {
                                   color: AppLux.teal.withValues(alpha: 0.08),
                                   borderRadius: BorderRadius.circular(20),
                                   border: Border.all(
-                                    color: AppLux.teal.withValues(
-                                      alpha: 0.12,
-                                    ),
+                                    color: AppLux.teal.withValues(alpha: 0.12),
                                     width: 0.6,
                                   ),
                                 ),
@@ -1073,10 +1068,30 @@ class _ReportSummaryCard extends StatelessWidget {
                             accent: const Color(0xFFB91C1C),
                           ),
                         _chip(
-                          report.estimatedRepairRange,
+                          CostCopy.labeled(report.estimatedRepairRange),
                           Icons.attach_money_rounded,
                         ),
                       ],
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      CostCopy.inlineNote,
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        height: 1.4,
+                        fontWeight: FontWeight.w500,
+                        color: AppLux.muted,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      CostCopy.footnote,
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        height: 1.4,
+                        fontWeight: FontWeight.w500,
+                        color: AppLux.muted,
+                      ),
                     ),
                   ],
                 ),

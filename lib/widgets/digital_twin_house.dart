@@ -190,30 +190,11 @@ class _DigitalTwinHouseState extends State<DigitalTwinHouse>
                   ),
                 ),
                 if (!widget.compact) _buildZoneLabel(s),
-                if (!widget.compact) _buildCaption(s),
               ],
             ),
           ),
         );
       },
-    );
-  }
-
-  Widget _buildCaption(double s) {
-    if (widget.selectedZone != TwinZone.none) {
-      return const SizedBox.shrink();
-    }
-    return Positioned(
-      bottom: s * 0.02,
-      child: Text(
-        'AI DIGITAL TWIN',
-        style: TextStyle(
-          color: const Color(0xFF94A3B8).withValues(alpha: 0.85),
-          fontSize: 9.5,
-          fontWeight: FontWeight.w600,
-          letterSpacing: 1.6,
-        ),
-      ),
     );
   }
 
@@ -265,8 +246,9 @@ class _DigitalTwinHouseState extends State<DigitalTwinHouse>
                   shape: BoxShape.circle,
                   boxShadow: [
                     BoxShadow(
-                      color: (isMarked ? AppLux.warning : const Color(0xFF14B8A6))
-                          .withValues(alpha: 0.45),
+                      color:
+                          (isMarked ? AppLux.warning : const Color(0xFF14B8A6))
+                              .withValues(alpha: 0.45),
                       blurRadius: 6,
                     ),
                   ],
@@ -306,11 +288,7 @@ class _StagePainter extends CustomPainter {
         ..shader = ui.Gradient.linear(
           Offset(size.width * 0.5, 0),
           Offset(size.width * 0.5, size.height),
-          const [
-            Color(0xFFFFFFFF),
-            Color(0xFFF4F6F8),
-            Color(0xFFEEF1F4),
-          ],
+          const [Color(0xFFFFFFFF), Color(0xFFF4F6F8), Color(0xFFEEF1F4)],
           const [0.0, 0.55, 1.0],
         ),
     );
@@ -645,12 +623,13 @@ class _LivingTwinPainter extends CustomPainter {
             c.translate(-w * 0.15, -h / 2),
             c.translate(w * 0.2, h / 2),
             [
-              Color.lerp(_glassHi, accent, zp * 0.25)!
-                  .withValues(alpha: glow ? 0.95 : 0.84),
-              Color.lerp(_glassMid, accent, zp * 0.2)!
-                  .withValues(alpha: 0.80),
-              Color.lerp(_glassLo, accent, zp * 0.15)!
-                  .withValues(alpha: 0.88),
+              Color.lerp(
+                _glassHi,
+                accent,
+                zp * 0.25,
+              )!.withValues(alpha: glow ? 0.95 : 0.84),
+              Color.lerp(_glassMid, accent, zp * 0.2)!.withValues(alpha: 0.80),
+              Color.lerp(_glassLo, accent, zp * 0.15)!.withValues(alpha: 0.88),
             ],
             const [0.0, 0.45, 1.0],
           ),
@@ -693,8 +672,16 @@ class _LivingTwinPainter extends CustomPainter {
       }
     }
 
-    window(Offset(g.cx - g.u * 0.50, g.cy - g.u * 0.10), g.u * 0.40, g.u * 0.48);
-    window(Offset(g.cx + g.u * 0.36, g.cy - g.u * 0.10), g.u * 0.40, g.u * 0.48);
+    window(
+      Offset(g.cx - g.u * 0.50, g.cy - g.u * 0.10),
+      g.u * 0.40,
+      g.u * 0.48,
+    );
+    window(
+      Offset(g.cx + g.u * 0.36, g.cy - g.u * 0.10),
+      g.u * 0.40,
+      g.u * 0.48,
+    );
   }
 
   void _paintDoor(Canvas canvas, _HouseGeo g) {
@@ -722,10 +709,7 @@ class _LivingTwinPainter extends CustomPainter {
         ..shader = ui.Gradient.radial(
           Offset(g.cx + g.u * 0.065, g.cy + g.u * 0.49),
           2.1,
-          [
-            const Color(0xFFE2E8F0),
-            const Color(0xFF94A3B8),
-          ],
+          [const Color(0xFFE2E8F0), const Color(0xFF94A3B8)],
         ),
     );
   }
@@ -749,8 +733,7 @@ class _LivingTwinPainter extends CustomPainter {
 
     canvas.drawPath(
       g.roofMass,
-      Paint()
-        ..color = Color.lerp(_roofDeep, accent, zp * 0.18)!,
+      Paint()..color = Color.lerp(_roofDeep, accent, zp * 0.18)!,
     );
     canvas.drawPath(
       g.roofFront,
@@ -847,8 +830,11 @@ class _LivingTwinPainter extends CustomPainter {
       Offset(g.cx + g.u * 1.16, gutterY),
       Offset(g.cx + g.u * 1.20, g.cy + g.u * 1.05),
       Paint()
-        ..color = Color.lerp(const Color(0xFF64748B), accent, zp * 0.25)!
-            .withValues(alpha: 0.88)
+        ..color = Color.lerp(
+          const Color(0xFF64748B),
+          accent,
+          zp * 0.25,
+        )!.withValues(alpha: 0.88)
         ..strokeWidth = 1.6
         ..strokeCap = StrokeCap.round,
     );
@@ -891,7 +877,10 @@ class _LivingTwinPainter extends CustomPainter {
     // Roof wireframe
     canvas.drawPath(g.roofFront, glow);
     canvas.drawPath(g.roofFront, stroke);
-    canvas.drawPath(g.roofMass, stroke..color = _holo.withValues(alpha: baseAlpha * 0.7));
+    canvas.drawPath(
+      g.roofMass,
+      stroke..color = _holo.withValues(alpha: baseAlpha * 0.7),
+    );
 
     // Foundation wireframe
     canvas.drawRRect(g.foundation.inflate(1.5), stroke);
@@ -990,9 +979,7 @@ class _LivingTwinPainter extends CustomPainter {
       final za = nodes[a].$2;
       final zb = nodes[b].$2;
       final issue = _marked(za) || _marked(zb);
-      final color = issue
-          ? _accentFor(_marked(za) ? za : zb)
-          : _holoSoft;
+      final color = issue ? _accentFor(_marked(za) ? za : zb) : _holoSoft;
       // Soft bezier mid control with gentle drift
       final mid = Offset(
         (pa.dx + pb.dx) / 2 + math.sin(scan * math.pi * 2 + a) * 3.5,
@@ -1020,8 +1007,7 @@ class _LivingTwinPainter extends CustomPainter {
       final (pos, zone) = nodes[i];
       final issue = _marked(zone);
       final color = issue ? _accentFor(zone) : _holoSoft;
-      final twinkle =
-          0.55 + 0.45 * math.sin((pulse + i * 0.17) * math.pi * 2);
+      final twinkle = 0.55 + 0.45 * math.sin((pulse + i * 0.17) * math.pi * 2);
       final r = issue ? 2.4 + pulse * 1.2 : 1.6 + twinkle * 0.6;
 
       canvas.drawCircle(
@@ -1162,22 +1148,22 @@ class _LivingTwinPainter extends CustomPainter {
 /// Shared house geometry in painter space.
 class _HouseGeo {
   _HouseGeo({required this.cx, required this.cy, required this.u})
-      : foundation = RRect.fromRectAndRadius(
-          Rect.fromCenter(
-            center: Offset(cx, cy + u * 1.12),
-            width: u * 2.45,
-            height: u * 0.32,
-          ),
-          const Radius.circular(5),
+    : foundation = RRect.fromRectAndRadius(
+        Rect.fromCenter(
+          center: Offset(cx, cy + u * 1.12),
+          width: u * 2.45,
+          height: u * 0.32,
         ),
-        body = RRect.fromRectAndRadius(
-          Rect.fromCenter(
-            center: Offset(cx - u * 0.02, cy + u * 0.10),
-            width: u * 2.08,
-            height: u * 1.65,
-          ),
-          const Radius.circular(11),
-        ) {
+        const Radius.circular(5),
+      ),
+      body = RRect.fromRectAndRadius(
+        Rect.fromCenter(
+          center: Offset(cx - u * 0.02, cy + u * 0.10),
+          width: u * 2.08,
+          height: u * 1.65,
+        ),
+        const Radius.circular(11),
+      ) {
     depthFace = Path()
       ..moveTo(cx + u * 1.02, cy - u * 0.70)
       ..lineTo(cx + u * 1.45, cy - u * 0.40)

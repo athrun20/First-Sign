@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../config/app_config.dart';
+import '../legal/cost_copy.dart';
 import '../legal/privacy_copy.dart';
 import '../models/analysis_models.dart';
 import '../models/contractor_models.dart';
@@ -344,11 +345,7 @@ class QuoteSubmitService {
           'QuoteSubmit: invitee notify skipped — no Formspree endpoint '
           '(matched ${matches.length})',
         );
-        return (
-          matched: matches.length,
-          notified: 0,
-          skipped: matches.length,
-        );
+        return (matched: matches.length, notified: 0, skipped: matches.length);
       }
 
       var notified = 0;
@@ -395,11 +392,7 @@ class QuoteSubmitService {
         'QuoteSubmit: invitee fan-out done — matched=${matches.length} '
         'notified=$notified skipped=$skipped lead=${lead.id}',
       );
-      return (
-        matched: matches.length,
-        notified: notified,
-        skipped: skipped,
-      );
+      return (matched: matches.length, notified: notified, skipped: skipped);
     } catch (e) {
       debugPrint('QuoteSubmit: invitee matching/notify crashed (ignored): $e');
       return (matched: 0, notified: 0, skipped: 0);
@@ -433,7 +426,8 @@ class QuoteSubmitService {
       // Report snapshot
       'report_score': report.overallScore,
       'top_findings': findings,
-      'planning_range': report.estimatedRepairRange,
+      'planning_range': CostCopy.labeled(report.estimatedRepairRange),
+      'planning_range_note': CostCopy.inlineNote,
       // Extra context
       'preferred_contact': lead.preferredContact,
       'homeowner_notes': lead.homeownerNotes,
@@ -442,12 +436,12 @@ class QuoteSubmitService {
       'photo_count': lead.photoCount,
       'lead_id': lead.id,
       'submission_type': 'contractor_quote',
-      'app': 'FirstSign',
+      'app': 'First Sign',
       'team_inbox': QuoteSubmitConfig.destinationEmail,
       // Formspree helpers
       '_replyto': lead.email,
       '_subject':
-          'FirstSign quote request · score ${report.overallScore} · ${lead.address}',
+          'First Sign quote request · score ${report.overallScore} · ${lead.address}',
       // Honeypot — leave empty (spam bots often fill it).
       '_gotcha': '',
       'message': _composeTeamMessage(
@@ -479,20 +473,21 @@ class QuoteSubmitService {
       'property_address': lead.address,
       'report_score': report.overallScore,
       'top_findings': findings,
-      'planning_range': report.estimatedRepairRange,
+      'planning_range': CostCopy.labeled(report.estimatedRepairRange),
+      'planning_range_note': CostCopy.inlineNote,
       'condition_label': report.conditionLabel,
       'lead_id': lead.id,
       'submission_type': 'homeowner_confirmation',
       // Formspree helpers
       '_replyto': QuoteSubmitConfig.destinationEmail,
-      '_subject': 'We received your FirstSign quote request',
+      '_subject': 'We received your First Sign quote request',
       // CC homeowner so they get a copy even without Autoresponse plugin
       '_cc': lead.email,
       '_gotcha': '',
       'message': body,
       'confirmation_body': body,
       'greeting': first.isEmpty ? 'Hello' : 'Hi $first',
-      'app': 'FirstSign',
+      'app': 'First Sign',
     };
   }
 
@@ -528,7 +523,8 @@ class QuoteSubmitService {
       'report_score': report.overallScore,
       'condition_label': report.conditionLabel,
       'top_findings': findings,
-      'planning_range': report.estimatedRepairRange,
+      'planning_range': CostCopy.labeled(report.estimatedRepairRange),
+      'planning_range_note': CostCopy.inlineNote,
       'findings_count': report.issues.length,
       'photo_count': lead.photoCount,
       'preferred_contact': lead.preferredContact,
@@ -545,15 +541,15 @@ class QuoteSubmitService {
       'area_specific_match': match.areaSpecificMatch,
       'area_fallback': match.areaFallback,
       'submission_type': 'invitee_lead_notify',
-      'app': 'FirstSign',
+      'app': 'First Sign',
       'screening_note':
-          'Screening lead from FirstSign / Pillar AI — not a licensed inspection.',
+          'Screening lead from First Sign — not a licensed inspection.',
       // Formspree delivery helpers — contractor is the recipient target
       'email': c.email.trim(),
       '_cc': c.email.trim(),
       '_replyto': lead.email,
       '_subject':
-          'FirstSign screening lead · score ${report.overallScore} · ${lead.address}',
+          'First Sign screening lead · score ${report.overallScore} · ${lead.address}',
       '_gotcha': '',
       'message': body,
     };
@@ -570,9 +566,7 @@ class QuoteSubmitService {
     final address = lead.address.trim().isEmpty
         ? 'your property'
         : lead.address.trim();
-    final range = report.estimatedRepairRange.trim().isEmpty
-        ? 'See your in-app report'
-        : report.estimatedRepairRange.trim();
+    final range = CostCopy.compact(report.estimatedRepairRange);
 
     return '''
 $greet,
@@ -582,16 +576,18 @@ We received your quote request for $address.
 Your screening summary
 • Score: ${report.overallScore}/100
 • Condition: ${report.conditionLabel.trim().isEmpty ? 'See report' : report.conditionLabel.trim()}
-• Planning range: $range
+• ${CostCopy.shortLabel}: $range
+  ${CostCopy.inlineNote}
 
 Top findings
 $findings
 
 A local contractor may follow up using the contact details you shared. Your photos and full report stay on your device unless you export or share them.
 
+${CostCopy.footnote}
 ${PrivacyCopy.screeningReminder}
 
-— FirstSign
+— First Sign
 '''
         .trim();
   }
@@ -608,9 +604,7 @@ ${PrivacyCopy.screeningReminder}
     final greetName = c.name.trim().isEmpty
         ? (company.isEmpty ? 'there' : company)
         : c.name.trim().split(RegExp(r'\s+')).first;
-    final range = report.estimatedRepairRange.trim().isEmpty
-        ? 'See report / TBD'
-        : report.estimatedRepairRange.trim();
+    final range = CostCopy.compact(report.estimatedRepairRange);
     final condition = report.conditionLabel.trim().isEmpty
         ? 'See report'
         : report.conditionLabel.trim();
@@ -626,9 +620,9 @@ ${PrivacyCopy.screeningReminder}
     return '''
 Hi $greetName,
 
-You have a new screening lead from FirstSign / Pillar AI (invite-only network).
+You have a new screening lead from First Sign (invite-only network).
 
-This is a photo-based exterior screening lead — not a licensed inspection. Confirm scope on-site before bidding.
+This is a photo-based exterior screening lead — not a licensed inspection. Confirm scope on-site before bidding. Dollar amounts below are a planning range from photos, not a bid or inspection price.
 
 HOMEOWNER
 Name: ${lead.name}
@@ -640,7 +634,8 @@ Best time: ${lead.preferredContact}
 REPORT
 Score: ${report.overallScore}/100
 Condition: $condition
-Planning range: $range
+${CostCopy.shortLabel}: $range
+${CostCopy.inlineNote}
 Photos on homeowner device: ${lead.photoCount}
 Findings flagged: ${report.issues.length}
 
@@ -655,9 +650,11 @@ Trades: $trades
 Area: $areaNote
 Lead id: ${lead.id}
 
+${CostCopy.footnote}
+
 Reply to the homeowner using the contact details above.
 
-— FirstSign / Pillar AI
+— First Sign
 '''
         .trim();
   }
@@ -668,7 +665,7 @@ Reply to the homeowner using the contact details above.
     required String findings,
   }) {
     return '''
-New FirstSign quote request
+New First Sign quote request
 Destination: ${QuoteSubmitConfig.destinationEmail}
 
 CONTACT
@@ -681,7 +678,8 @@ Best time: ${lead.preferredContact}
 REPORT
 Score: ${report.overallScore}/100
 Condition: ${report.conditionLabel}
-Planning range: ${report.estimatedRepairRange}
+${CostCopy.shortLabel}: ${CostCopy.compact(report.estimatedRepairRange)}
+${CostCopy.inlineNote}
 Photos: ${lead.photoCount}
 Findings: ${report.issues.length}
 
@@ -692,6 +690,8 @@ HOMEOWNER NOTES
 ${lead.homeownerNotes.trim().isEmpty ? '(none)' : lead.homeownerNotes.trim()}
 
 Lead id: ${lead.id}
+
+${CostCopy.footnote}
 '''
         .trim();
   }

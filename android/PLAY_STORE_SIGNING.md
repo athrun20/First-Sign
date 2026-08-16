@@ -1,4 +1,4 @@
-# Play Store upload signing (FirstSign)
+# Play Store upload signing (First Sign)
 
 Safe local setup for a **Play Console upload key**. Secrets stay on your machine only.
 

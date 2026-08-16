@@ -1,11 +1,11 @@
-# FirstSign quote email (Formspree) setup
+# First Sign quote email (Formspree) setup
 
 When configured, **Request a quote** emails a screening summary to your team and can send a best-effort homeowner confirmation.
 
 ## 1. Create the contractor form (required)
 
 1. Sign up / log in at [formspree.io](https://formspree.io).
-2. **New form** → name it e.g. `FirstSign quotes`.
+2. **New form** → name it e.g. `First Sign quotes`.
 3. Set the form **notification email** to your team inbox (default in app: `sanchezj24@live.com`).
 4. Copy the endpoint, e.g. `https://formspree.io/f/xpwzgkqr`.
 5. Under form settings, allow JSON submissions (default for modern Formspree).
@@ -19,7 +19,7 @@ When configured, **Request a quote** emails a screening summary to your team and
 
 ## 2b. Optional: invitee (matched contractor) notify form
 
-When a homeowner submits a quote, FirstSign:
+When a homeowner submits a quote, First Sign:
 
 1. Emails the **team** form (unchanged).  
 2. Saves a **local lead** (unchanged).  
@@ -28,8 +28,8 @@ When a homeowner submits a quote, FirstSign:
 
 Each invitee payload includes homeowner contact, score, condition, top findings, planning range, lead id, and a screening disclaimer. Delivery uses Formspree `_cc` + `email` (enable **CC** and/or **Autoresponse** on the form so the invitee receives mail).
 
-1. Create a form e.g. `FirstSign invitee leads` (recommended so team submissions stay separate).  
-2. Copy the endpoint into `FORMSPREE_CONTRACTOR_NOTIFY_ENDPOINT` (FirstSign: `https://formspree.io/f/mdaqrbln`).  
+1. Create a form e.g. `First Sign invitee leads` (recommended so team submissions stay separate).  
+2. Copy the endpoint into `FORMSPREE_CONTRACTOR_NOTIFY_ENDPOINT` (First Sign: `https://formspree.io/f/mdaqrbln`).  
 3. If omitted, invitee posts **reuse** `FORMSPREE_ENDPOINT` (extra rows in the team form — fine for early testing).  
 4. Failures here **never** fail the homeowner quote.
 
@@ -98,7 +98,7 @@ Optional Vision key in the same file: `"GOOGLE_VISION_API_KEY": "AIza..."` — s
 - Name, phone, email, property address  
 - Score, condition, planning range, top findings  
 - Preferred contact window, notes, lead id  
-- Subject: `FirstSign quote request · score N · address`
+- Subject: `First Sign quote request · score N · address`
 
 **Homeowner confirmation** (if confirm endpoint posts successfully):
 
@@ -109,7 +109,7 @@ Optional Vision key in the same file: `"GOOGLE_VISION_API_KEY": "AIza..."` — s
 
 - Homeowner name, phone, email, property address  
 - Score, condition label, top findings, planning range  
-- Lead id + short FirstSign / Pillar AI screening note  
+- Lead id + short First Sign screening note  
 - `_cc` / `email` set to the invitee’s email  
 
 Photos are **not** uploaded with the quote email.

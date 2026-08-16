@@ -1,4 +1,4 @@
-# FirstSign Android — Formspree + Vision (debug & release)
+# First Sign Android — Formspree + Vision (debug & release)
 
 Compile-time secrets live in gitignored **`formspree.env.json`** (same file as desktop/web).
 
@@ -41,11 +41,30 @@ flutter run -d android --dart-define-from-file=formspree.env.json
 
 ## 2. Release APK (sideload / internal test)
 
+Preferred (reads gitignored `formspree.env.json` — do **not** hard-code the Vision key):
+
 ```powershell
 .\scripts\build_android_release.ps1 -Apk
 # → build\app\outputs\flutter-apk\app-release.apk
+```
 
+Equivalent one-liner:
+
+```powershell
+flutter build apk --release --dart-define-from-file=formspree.env.json
+```
+
+Or pass defines explicitly (replace the Vision key; never commit it):
+
+```powershell
+flutter build apk --release --dart-define=GOOGLE_VISION_API_KEY=YOUR_KEY --dart-define=FORMSPREE_ENDPOINT=https://formspree.io/f/xwvgavzj
+```
+
+Install:
+
+```powershell
 adb install -r build\app\outputs\flutter-apk\app-release.apk
+# or: flutter install
 ```
 
 Smaller per-ABI APKs:

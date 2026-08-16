@@ -138,14 +138,7 @@ class CalibrationFixturePainter {
           seed: seed,
         );
       case CalibrationScene.damagedRoof:
-        _paintRoofField(
-          canvas,
-          w: w,
-          h: h,
-          damaged: true,
-          extreme: false,
-          seed: seed,
-        );
+        _paintRoofField(canvas, w: w, h: h, damaged: true, seed: seed);
       case CalibrationScene.damagedRoofClose:
         _paintRoofField(
           canvas,
@@ -162,7 +155,6 @@ class CalibrationFixturePainter {
           h: h,
           damaged: false,
           aging: true,
-          extreme: false,
           seed: seed,
         );
       case CalibrationScene.gutterDebris:
@@ -173,7 +165,6 @@ class CalibrationFixturePainter {
           canvas,
           w: w,
           h: h,
-          sideView: false,
           body: const Color(0xFFD9CFC0),
           roof: const Color(0xFF5C4A42),
           damagedRoof: false,
@@ -188,7 +179,6 @@ class CalibrationFixturePainter {
           canvas,
           w: w,
           h: h,
-          sideView: false,
           body: const Color(0xFFEDE4D8),
           roof: const Color(0xFF4E3F38),
           damagedRoof: false,

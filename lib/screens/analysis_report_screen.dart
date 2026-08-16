@@ -5,10 +5,13 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../legal/cost_copy.dart';
+import '../legal/privacy_copy.dart';
 import '../models/analysis_models.dart';
 import '../models/capture_models.dart';
 import '../models/saved_report.dart';
 import '../models/score_comparison.dart';
+import '../services/evidence_timeline.dart';
 import '../services/exterior_analysis_service.dart';
 import '../services/finding_feedback_store.dart';
 import '../services/finding_retake_service.dart';
@@ -16,7 +19,7 @@ import '../services/quote_submit_service.dart';
 import '../services/report_pdf_service.dart';
 import '../services/report_store.dart';
 import '../services/storage_exception.dart';
-import '../widgets/condition_score_dial.dart';
+import '../widgets/closer_photo_tip.dart';
 import '../widgets/digital_twin_house.dart';
 import '../widgets/photo_thumb.dart';
 import '../widgets/score_compare.dart';
@@ -41,38 +44,40 @@ abstract final class _Lux {
   static const danger = Color(0xFFB91C1C);
 
   static List<BoxShadow> softShadow({double intensity = 1}) => [
-        BoxShadow(
-          color: navy.withValues(alpha: 0.06 * intensity),
-          blurRadius: 28,
-          offset: const Offset(0, 12),
-        ),
-        BoxShadow(
-          color: navy.withValues(alpha: 0.02 * intensity),
-          blurRadius: 6,
-          offset: const Offset(0, 2),
-        ),
-      ];
+    BoxShadow(
+      color: navy.withValues(alpha: 0.06 * intensity),
+      blurRadius: 28,
+      offset: const Offset(0, 12),
+    ),
+    BoxShadow(
+      color: navy.withValues(alpha: 0.02 * intensity),
+      blurRadius: 6,
+      offset: const Offset(0, 2),
+    ),
+  ];
 
   static BoxDecoration card({double radius = 22}) => BoxDecoration(
-        color: surface,
-        borderRadius: BorderRadius.circular(radius),
-        border: Border.all(color: border, width: 1),
-        boxShadow: softShadow(intensity: 0.85),
-      );
+    color: surface,
+    borderRadius: BorderRadius.circular(radius),
+    border: Border.all(color: border, width: 1),
+    boxShadow: softShadow(intensity: 0.85),
+  );
 }
 
-/// Excellent · Good · Fair · Needs Attention from overall score.
+/// Excellent · Good · Stable · Needs Attention from overall score.
+///
+/// 80+ is Good so an 81 with no emergency does not read as "Fair".
 String reportHealthLabel(int score) {
   if (score >= 92) return 'Excellent';
-  if (score >= 85) return 'Good';
-  if (score >= 70) return 'Fair';
+  if (score >= 80) return 'Good';
+  if (score >= 68) return 'Stable';
   return 'Needs Attention';
 }
 
 Color reportHealthColor(int score) {
   if (score >= 92) return _Lux.emerald;
-  if (score >= 85) return const Color(0xFF0D9488);
-  if (score >= 70) return _Lux.gold;
+  if (score >= 80) return const Color(0xFF0D9488);
+  if (score >= 68) return _Lux.emeraldDeep;
   return _Lux.danger;
 }
 
@@ -108,13 +113,24 @@ String _bucketTitle(_TimelineBucket b) {
 String _bucketHint(_TimelineBucket b) {
   switch (b) {
     case _TimelineBucket.today:
-      return 'Look closely or get a closer photo';
+      return 'Look closely or take a closer photo';
     case _TimelineBucket.days30:
-      return 'Schedule soon to limit weather risk';
+      return 'Schedule a look this month';
     case _TimelineBucket.months6:
       return 'Plan with seasonal exterior work';
     case _TimelineBucket.months12:
       return 'Monitor and bundle with maintenance';
+  }
+}
+
+String _bucketEmptyState(_TimelineBucket b) {
+  switch (b) {
+    case _TimelineBucket.today:
+    case _TimelineBucket.days30:
+      return 'No urgent action';
+    case _TimelineBucket.months6:
+    case _TimelineBucket.months12:
+      return 'No planned work';
   }
 }
 
@@ -146,7 +162,6 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
   String? _retakeBanner;
 
   late final AnimationController _entranceController;
-  late final AnimationController _scoreController;
 
   late final Animation<double> _scoreFade;
   late final Animation<double> _statsFade;
@@ -157,13 +172,20 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
 
   TwinZone _selectedZone = TwinZone.none;
   bool _overviewExpanded = false;
-  bool _twinExpanded = false;
+
+  final _scrollController = ScrollController();
+  final _findingsKey = GlobalKey();
 
   @override
   void initState() {
     super.initState();
     _photos = List<CapturePhoto>.from(widget.photos);
-    _report = widget.report;
+    _report = widget.report.copyWith(
+      issues: FindingRetakeService.rebindIssues(
+        issues: widget.report.issues,
+        photos: _photos,
+      ),
+    );
     _savedReportId = widget.savedReportId;
     unawaited(
       FindingFeedbackStore.instance.ensureLoaded().then((_) {
@@ -176,11 +198,6 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
     _entranceController = AnimationController(
       vsync: this,
       duration: Duration(milliseconds: 520 + totalSlots * 140),
-    );
-
-    _scoreController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1200),
     );
 
     Animation<double> slot(int index) {
@@ -200,72 +217,78 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
     _footerFade = slot(4 + issueCount);
 
     unawaited(_entranceController.forward());
-    unawaited(
-      Future<void>.delayed(const Duration(milliseconds: 180), () {
-        if (mounted) unawaited(_scoreController.forward());
-      }),
-    );
   }
 
   @override
   void dispose() {
     _entranceController.dispose();
-    _scoreController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
   CapturePhoto? _photoForIssue(AnalysisIssue issue, {int? fallbackIndex}) {
-    final photos = _photos;
-    if (photos.isEmpty) return null;
-
-    if (issue.photoIndex != null) {
-      final byIndex = issue.photoIndex!;
-      if (byIndex >= 0 && byIndex < photos.length) return photos[byIndex];
-    }
-
-    final label = issue.sourcePhotoLabel.trim().toLowerCase();
-    if (label.isNotEmpty) {
-      for (final p in photos) {
-        if (p.label.toLowerCase() == label) return p;
-      }
-    }
-
-    if (fallbackIndex != null &&
-        fallbackIndex >= 0 &&
-        fallbackIndex < photos.length) {
-      return photos[fallbackIndex];
-    }
-    return photos.first;
+    return FindingRetakeService.primaryEvidencePhoto(
+      issue: issue,
+      photos: _photos,
+      fallbackIndex: fallbackIndex,
+    );
   }
 
   void _openSurfaceEvidence(
     AnalysisIssue issue, {
     int? issueIndex,
     int? photoIndex,
+    int? focusPhotoIndex,
   }) {
     final shot = _photoForIssue(issue, fallbackIndex: photoIndex);
     final findingIndex = issueIndex != null ? issueIndex + 1 : null;
+    final rematchedAway =
+        shot != null &&
+        issue.photoIndex != null &&
+        issue.photoIndex != shot.index;
+    final evidenceIssue = rematchedAway
+        ? issue.copyWith(clearHighlight: true)
+        : issue;
 
-    // Multi-angle: other capture photos in the same session.
-    final related = <SurfaceEvidenceAngle>[
+    // Multi-angle: other exterior capture photos in the same session.
+    // Primary is always a photo that supports the finding; others may be
+    // related context only.
+    final relatedPhotos = [
       for (final p in _photos)
-        if (shot == null || p.index != shot.index)
-          SurfaceEvidenceAngle(
-            label: p.label,
-            photo: p.file,
-          ),
+        if ((shot == null || p.index != shot.index) &&
+            !FindingRetakeService.looksNonExteriorPhoto(p))
+          p,
+    ].take(4).toList();
+    final related = [
+      for (final p in relatedPhotos)
+        SurfaceEvidenceAngle(
+          label: p.label,
+          photo: p.file,
+          supportsFinding: FindingRetakeService.photoSupportsIssue(issue, p),
+        ),
     ];
+
+    var initialAngleIndex = 0;
+    if (focusPhotoIndex != null) {
+      if (shot != null && shot.index == focusPhotoIndex) {
+        initialAngleIndex = 0;
+      } else {
+        final ri = relatedPhotos.indexWhere((p) => p.index == focusPhotoIndex);
+        if (ri >= 0) {
+          initialAngleIndex = ri + (shot != null ? 1 : 0);
+        }
+      }
+    }
 
     unawaited(
       showSurfaceEvidenceSheet(
         context: context,
-        issue: issue,
+        issue: evidenceIssue,
         photo: shot?.file,
         findingIndex: findingIndex,
-        sourcePhotoLabel: issue.sourcePhotoDisplay.isNotEmpty
-            ? issue.sourcePhotoDisplay
-            : shot?.label,
-        relatedAngles: related.take(4).toList(),
+        sourcePhotoLabel: shot?.label ?? issue.sourcePhotoDisplay,
+        relatedAngles: related,
+        initialAngleIndex: initialAngleIndex,
         timeline: _evidenceTimelineFor(issue),
         onRetake: _reanalyzing
             ? null
@@ -277,92 +300,97 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
     );
   }
 
-  /// Build a prior-scan timeline when history has a matching finding.
+  /// Build a prior-scan timeline only when a comparable photo exists.
   SurfaceEvidenceTimeline? _evidenceTimelineFor(AnalysisIssue issue) {
-    final reports = ReportStore.instance.reports;
-    if (reports.length < 2) return null;
-
-    // Prefer the report just older than the current saved id, else second newest.
-    SavedReport? prior;
-    final id = _savedReportId;
-    if (id != null) {
-      final idx = reports.indexWhere((r) => r.id == id);
-      if (idx >= 0 && idx + 1 < reports.length) {
-        prior = reports[idx + 1];
-      }
-    }
-    prior ??= reports.length > 1 ? reports[1] : null;
+    final prior = _priorSavedReport();
     if (prior == null) return null;
 
-    // Match by twin zone first, then soft title overlap.
-    AnalysisIssue? match;
-    for (final p in prior.report.issues) {
-      if (p.twinZone == issue.twinZone && p.twinZone != TwinZone.none) {
-        match = p;
-        break;
-      }
-    }
-    match ??= prior.report.issues.cast<AnalysisIssue?>().firstWhere(
-          (p) =>
-              p != null &&
-              (p.title.toLowerCase().contains(
-                    issue.title.toLowerCase().split(' ').first,
-                  ) ||
-                  issue.title.toLowerCase().contains(
-                    p.title.toLowerCase().split(' ').first,
-                  )),
-          orElse: () => null,
-        );
+    final match = EvidenceTimelinePairing.matchPriorIssue(
+      issue,
+      prior.report.issues,
+    );
     if (match == null) return null;
 
-    XFile? priorPhoto;
-    final pi = match.photoIndex;
-    if (pi != null && pi >= 0 && pi < prior.photos.length) {
-      final bytes = prior.photos[pi].bytes;
-      if (bytes.isNotEmpty) {
-        priorPhoto = XFile.fromData(
-          bytes,
-          name: 'prior_$pi.jpg',
-          mimeType: 'image/jpeg',
-        );
-      }
-    } else if (prior.photos.isNotEmpty && prior.photos.first.bytes.isNotEmpty) {
-      final bytes = prior.photos.first.bytes;
-      priorPhoto = XFile.fromData(
-        bytes,
-        name: 'prior_0.jpg',
-        mimeType: 'image/jpeg',
-      );
+    final priorSaved = EvidenceTimelinePairing.priorEvidencePhoto(
+      match: match,
+      prior: prior,
+    );
+    if (priorSaved == null || priorSaved.bytes.isEmpty) return null;
+
+    final currentPhoto = _photoForIssue(issue);
+    if (!EvidenceTimelinePairing.isComparablePair(
+      current: issue,
+      currentPhoto: currentPhoto,
+      prior: match,
+      priorPhoto: priorSaved,
+    )) {
+      return null;
     }
 
-    double? areaDelta;
-    final a = issue.surfaceHighlight;
-    final b = match.surfaceHighlight;
-    if (a != Rect.zero && b != Rect.zero) {
-      final cur = a.width * a.height;
-      final old = b.width * b.height;
-      if (old > 0.0001) {
-        areaDelta = ((cur - old) / old) * 100;
-      }
-    }
+    final areaDelta = _highlightAreaDelta(
+      issue.surfaceHighlight,
+      match.surfaceHighlight,
+    );
 
-    String fmt(DateTime d) =>
-        '${d.month}/${d.day}/${d.year.toString().substring(2)}';
+    final d = prior.createdAt;
+    final priorDate = '${d.month}/${d.day}/${d.year.toString().substring(2)}';
+    final priorHighlight = match.surfaceHighlight == Rect.zero
+        ? null
+        : match.surfaceHighlight;
 
     return SurfaceEvidenceTimeline(
       priorLabel: 'Prior scan',
       currentLabel: 'This scan',
-      priorPhoto: priorPhoto,
-      priorHighlight: match.surfaceHighlight == Rect.zero
-          ? null
-          : match.surfaceHighlight,
-      priorDateLabel: fmt(prior.createdAt),
+      priorPhoto: XFile.fromData(
+        priorSaved.bytes,
+        name: 'prior_${priorSaved.index}.jpg',
+        mimeType: 'image/jpeg',
+      ),
+      priorHighlight: priorHighlight,
+      priorDateLabel: priorDate,
       currentDateLabel: 'Now',
       areaChangePercent: areaDelta,
     );
   }
 
+  /// Report just older than the current saved id, else the second-newest.
+  SavedReport? _priorSavedReport() {
+    final reports = ReportStore.instance.reports;
+    if (reports.length < 2) return null;
+
+    final id = _savedReportId;
+    if (id != null) {
+      final idx = reports.indexWhere((r) => r.id == id);
+      if (idx >= 0 && idx + 1 < reports.length) return reports[idx + 1];
+    }
+    return reports[1];
+  }
+
+
+
+  double? _highlightAreaDelta(Rect a, Rect b) {
+    if (a == Rect.zero || b == Rect.zero) return null;
+    final old = b.width * b.height;
+    if (old <= 0.0001) return null;
+    final cur = a.width * a.height;
+    return ((cur - old) / old) * 100;
+  }
+
   void _openSurfaceEvidenceForPhoto(int photoIndex) {
+    if (photoIndex >= 0 &&
+        photoIndex < _photos.length &&
+        FindingRetakeService.looksNonExteriorPhoto(_photos[photoIndex])) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'This photo is not an exterior surface, so it is not used as evidence.',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
     final issues = _report.issues;
     if (issues.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -374,16 +402,29 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
       return;
     }
 
-    final bound = issues.indexWhere((i) => i.photoIndex == photoIndex);
-    final issueIndex = bound >= 0 ? bound : 0;
-    final issue = bound >= 0
-        ? issues[bound]
-        : issues[issueIndex].copyWith(
-            photoIndex: photoIndex,
-            sourcePhotoLabel: _photos[photoIndex].label,
-          );
+    final photo = _photos[photoIndex];
+    final matched = FindingRetakeService.bestIssueForPhoto(
+      photo: photo,
+      issues: issues,
+    );
+    if (matched != null) {
+      final issueIndex = issues.indexOf(matched);
+      _openSurfaceEvidence(
+        matched,
+        issueIndex: issueIndex >= 0 ? issueIndex : 0,
+        photoIndex: photoIndex,
+      );
+      return;
+    }
 
-    _openSurfaceEvidence(issue, issueIndex: issueIndex, photoIndex: photoIndex);
+    // This frame does not support any listed finding (e.g. a roof photo
+    // next to a grade-only drainage note). Open the first finding with
+    // this photo as related context — not as proof.
+    _openSurfaceEvidence(
+      issues.first,
+      issueIndex: 0,
+      focusPhotoIndex: photoIndex,
+    );
   }
 
   Widget _reveal(Animation<double> animation, Widget child) {
@@ -416,8 +457,6 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
         return _Lux.emerald;
     }
   }
-
-  Color _scoreColor(int score) => reportHealthColor(score);
 
   void _requestQuote() {
     if (!QuoteSubmitConfig.isConfigured) {
@@ -471,6 +510,20 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
     );
   }
 
+  Future<void> _retakePhotos() async {
+    if (_reanalyzing) return;
+    final args = <String, dynamic>{
+      'seed': _photos,
+    };
+    if (_report.isSinglePhotoScan) {
+      args['singlePhotoMode'] = true;
+      if (_photos.isNotEmpty && _photos.first.slotId != null) {
+        args['focus'] = _photos.first.slotId;
+      }
+    }
+    await Navigator.of(context).pushNamed('/guided-capture', arguments: args);
+  }
+
   Future<void> _retakeForIssue(AnalysisIssue issue) async {
     if (_reanalyzing) return;
     final focus = _slotForIssue(issue);
@@ -514,7 +567,12 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
       );
       setState(() {
         _photos = photos;
-        _report = report;
+        _report = report.copyWith(
+          issues: FindingRetakeService.rebindIssues(
+            issues: report.issues,
+            photos: photos,
+          ),
+        );
         _savedReportId = saved.id;
         _retakeBanner = summary;
         _reanalyzing = false;
@@ -598,8 +656,8 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
                   child: Text(
                     'Share screening PDF',
                     style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
                 ListTile(
@@ -634,27 +692,44 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
   }
 
   void _onTwinZoneSelected(TwinZone zone) {
-    setState(() {
-      _selectedZone = _selectedZone == zone ? TwinZone.none : zone;
+    final next = _selectedZone == zone ? TwinZone.none : zone;
+    setState(() => _selectedZone = next);
+    if (next == TwinZone.none) return;
+    final hasFinding = _orderedIssues.any((i) => i.twinZone == next);
+    if (hasFinding) _scrollToFindings();
+  }
+
+  void _highlightZoneForIssue(AnalysisIssue issue) {
+    if (issue.twinZone == TwinZone.none) return;
+    if (_selectedZone == issue.twinZone) return;
+    setState(() => _selectedZone = issue.twinZone);
+  }
+
+  void _scrollToFindings() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ctx = _findingsKey.currentContext;
+      if (ctx == null || !ctx.mounted) return;
+      unawaited(
+        Scrollable.ensureVisible(
+          ctx,
+          duration: const Duration(milliseconds: 420),
+          curve: Curves.easeOutCubic,
+          alignment: 0.08,
+        ),
+      );
     });
   }
 
-  String _zoneLabel(TwinZone zone) {
-    switch (zone) {
-      case TwinZone.roof:
-        return 'Roof';
-      case TwinZone.siding:
-        return 'Siding';
-      case TwinZone.windows:
-        return 'Windows';
-      case TwinZone.foundation:
-        return 'Foundation';
-      case TwinZone.gutters:
-        return 'Gutters';
-      case TwinZone.none:
-        return 'All zones';
-    }
+  void _selectFindingFromPlan(AnalysisIssue issue, int issueIndex) {
+    setState(() {
+      if (issue.twinZone != TwinZone.none) {
+        _selectedZone = issue.twinZone;
+      }
+    });
+    _openSurfaceEvidence(issue, issueIndex: issueIndex);
   }
+
+  String _zoneLabel(TwinZone zone) => zone.surfaceLabel;
 
   ScoreComparison? _scoreComparison() {
     final id = _savedReportId;
@@ -683,10 +758,11 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
   }
 
   bool _photoHasFindings(CapturePhoto shot) {
+    final shotLabel = shot.label.toLowerCase();
     for (final i in _report.issues) {
       if (i.photoIndex == shot.index) return true;
       final label = i.sourcePhotoLabel.trim().toLowerCase();
-      if (label.isNotEmpty && shot.label.toLowerCase() == label) return true;
+      if (label.isNotEmpty && label == shotLabel) return true;
     }
     return false;
   }
@@ -696,10 +772,15 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
     final report = _report;
     final allIssues = _orderedIssues;
     final issues = _visibleIssues;
-    final scoreColor = _scoreColor(report.overallScore);
+    final scoreColor = reportHealthColor(report.overallScore);
     final scoreCompare = _scoreComparison();
-    final compareOther =
-        scoreCompare == null ? null : _otherCompareReport(scoreCompare);
+    final compareOther = scoreCompare == null
+        ? null
+        : _otherCompareReport(scoreCompare);
+    // Index once so finding cards stay O(n) instead of indexOf each row.
+    final globalIndexByIssue = <AnalysisIssue, int>{
+      for (var i = 0; i < allIssues.length; i++) allIssues[i]: i,
+    };
 
     return Scaffold(
       backgroundColor: _Lux.bg,
@@ -787,6 +868,7 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
             ),
           ),
           SingleChildScrollView(
+            controller: _scrollController,
             padding: const EdgeInsets.fromLTRB(20, 4, 20, 56),
             physics: const BouncingScrollPhysics(
               parent: AlwaysScrollableScrollPhysics(),
@@ -798,10 +880,10 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
                   _buildRetakeBanner(),
                   const SizedBox(height: 16),
                 ],
-                // ── How healthy is my home? ─────────────────────────────
+                // House → Health
                 _reveal(
                   _scoreFade,
-                  _buildHealthHero(report, scoreColor),
+                  _buildPropertyHero(report, scoreColor),
                 ),
                 if (scoreCompare != null) ...[
                   const SizedBox(height: 14),
@@ -815,8 +897,8 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
                       otherActionLabel: compareOther == null
                           ? null
                           : scoreCompare.toLabel == 'Latest scan'
-                              ? 'Open latest scan'
-                              : 'Open last scan',
+                          ? 'Open latest scan'
+                          : 'Open last scan',
                     ),
                   ),
                 ],
@@ -824,15 +906,25 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
                   const SizedBox(height: 12),
                   _reveal(_statsFade, _buildQuickScanNote()),
                 ],
-                // ── Findings as modern cards ────────────────────────────
+                if (report.hasLimitedVisibility) ...[
+                  const SizedBox(height: 14),
+                  _reveal(
+                    _statsFade,
+                    CloserPhotoTipCard(onRetake: _retakePhotos),
+                  ),
+                ],
+                // What Matters
                 const SizedBox(height: 28),
-                _reveal(
-                  _headerFade,
-                  _sectionLabel(
-                    _selectedZone == TwinZone.none
-                        ? 'Findings'
-                        : '${_zoneLabel(_selectedZone)} findings',
-                    allIssues.isEmpty ? 'None' : '${issues.length}',
+                KeyedSubtree(
+                  key: _findingsKey,
+                  child: _reveal(
+                    _headerFade,
+                    _sectionLabel(
+                      _selectedZone == TwinZone.none
+                          ? 'What matters'
+                          : _zoneLabel(_selectedZone),
+                      allIssues.isEmpty ? 'None' : '${issues.length}',
+                    ),
                   ),
                 ),
                 const SizedBox(height: 6),
@@ -841,7 +933,9 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
                   Text(
                     allIssues.isEmpty
                         ? 'Nothing elevated from this screening pass.'
-                        : 'Each card is one observation — severity, confidence, and planning cost.',
+                        : _selectedZone == TwinZone.none
+                        ? 'Each observation, with the photo evidence behind it.'
+                        : 'Findings on the ${_zoneLabel(_selectedZone).toLowerCase()}.',
                     style: GoogleFonts.inter(
                       fontSize: 13.5,
                       height: 1.4,
@@ -858,46 +952,34 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
                 else
                   ...List.generate(issues.length, (index) {
                     final issue = issues[index];
-                    final globalIndex = allIssues.indexOf(issue);
-                    final displayIndex =
-                        (globalIndex >= 0 ? globalIndex : index) + 1;
+                    final globalIndex = globalIndexByIssue[issue] ?? index;
+                    final fadeIndex = globalIndex.clamp(
+                      0,
+                      _issueFades.length - 1,
+                    );
                     return _reveal(
-                      _issueFades[(globalIndex >= 0 ? globalIndex : index)
-                          .clamp(0, _issueFades.length - 1)],
-                      _buildFindingCard(issue, displayIndex),
+                      _issueFades[fadeIndex],
+                      _buildFindingCard(issue, globalIndex + 1),
                     );
                   }),
-                // ── Recommended timeline ────────────────────────────────
+                // Timeline
                 if (allIssues.isNotEmpty) ...[
                   const SizedBox(height: 28),
                   _reveal(
                     _severityFade,
-                    _buildTimelineSection(allIssues),
+                    _buildTimelineSection(allIssues, globalIndexByIssue),
                   ),
                 ],
-                // ── Photo gallery ───────────────────────────────────────
+                // Evidence photos
                 if (_photos.isNotEmpty) ...[
                   const SizedBox(height: 28),
                   _reveal(_severityFade, _buildPhotoGallery()),
                 ],
-                // ── Cost + savings ──────────────────────────────────────
-                const SizedBox(height: 28),
-                _reveal(
-                  _footerFade,
-                  _buildCostSummary(report),
-                ),
-                if (allIssues.isNotEmpty) ...[
-                  const SizedBox(height: 14),
-                  _reveal(
-                    _footerFade,
-                    _buildPotentialSavings(report),
-                  ),
-                ],
-                // ── Secondary: overview, twin, disclaimer, CTAs ─────────
-                const SizedBox(height: 28),
+                // Planning range — subordinate
+                const SizedBox(height: 22),
+                _reveal(_footerFade, _buildCostSummary(report)),
+                const SizedBox(height: 22),
                 _reveal(_footerFade, _buildCollapsibleOverview(report)),
-                const SizedBox(height: 12),
-                _reveal(_footerFade, _buildTwinViewCard(report)),
                 const SizedBox(height: 16),
                 _reveal(_footerFade, _buildDisclaimerCard()),
                 const SizedBox(height: 24),
@@ -1020,16 +1102,29 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
     );
   }
 
-  /// Hero: answers “How healthy is my home?”
-  Widget _buildHealthHero(AnalysisReport report, Color scoreColor) {
+  /// House first, then a restrained health readout.
+  Widget _buildPropertyHero(AnalysisReport report, Color scoreColor) {
     final label = reportHealthLabel(report.overallScore);
     final isDemo = report.analysisSource.toLowerCase().contains('demo');
+    final marked = report.markedTwinZones;
+    final width = MediaQuery.sizeOf(context).width;
+    final twinSize = (width - 56).clamp(248.0, 318.0);
+    final cueZones = <TwinZone>[
+      TwinZone.roof,
+      TwinZone.siding,
+      TwinZone.gutters,
+      TwinZone.foundation,
+      if (marked.contains(TwinZone.windows)) TwinZone.windows,
+    ];
+    final zoneFindings = _selectedZone == TwinZone.none
+        ? const <AnalysisIssue>[]
+        : _visibleIssues;
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(22, 26, 22, 24),
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 20),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(28),
+        borderRadius: BorderRadius.circular(26),
         border: Border.all(
           color: _Lux.emerald.withValues(alpha: 0.12),
           width: 1,
@@ -1039,65 +1134,118 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
           end: Alignment.bottomRight,
           colors: [
             _Lux.surface,
-            _Lux.emeraldMist.withValues(alpha: 0.55),
-            _Lux.navyMist.withValues(alpha: 0.4),
+            _Lux.emeraldMist.withValues(alpha: 0.42),
+            _Lux.navyMist.withValues(alpha: 0.32),
           ],
-          stops: const [0.0, 0.55, 1.0],
+          stops: const [0.0, 0.58, 1.0],
         ),
-        boxShadow: _Lux.softShadow(intensity: 1.1),
+        boxShadow: _Lux.softShadow(intensity: 1.05),
       ),
       child: Column(
         children: [
           Text(
-            isDemo ? 'Demo · Home Health Score' : 'How healthy is my home?',
-            textAlign: TextAlign.center,
+            isDemo ? 'Demo · Your home' : 'Your home',
             style: GoogleFonts.inter(
-              fontSize: 13,
+              fontSize: 12,
               fontWeight: FontWeight.w600,
               color: _Lux.muted,
-              letterSpacing: 0.15,
+              letterSpacing: 0.6,
             ),
           ),
-          const SizedBox(height: 18),
-          ConditionScoreDial(
-            key: ValueKey(report.overallScore),
-            score: report.overallScore,
-            accent: scoreColor,
-            size: 200,
+          const SizedBox(height: 8),
+          DigitalTwinHouse(
+            size: twinSize,
+            selectedZone: _selectedZone,
+            onZoneSelected: _onTwinZoneSelected,
+            autoRotate: _selectedZone == TwinZone.none,
+            showMarkers: marked.isNotEmpty,
+            markedZones: marked,
           ),
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-            decoration: BoxDecoration(
-              color: scoreColor.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(99),
-              border: Border.all(
-                color: scoreColor.withValues(alpha: 0.22),
-              ),
-            ),
-            child: Text(
-              label,
+          if (_selectedZone == TwinZone.none) ...[
+            const SizedBox(height: 8),
+            Text(
+              TwinZoneCopy.tapHelper,
+              key: const Key('twin-tap-helper'),
+              textAlign: TextAlign.center,
               style: GoogleFonts.inter(
-                fontSize: 14.5,
-                fontWeight: FontWeight.w700,
-                color: scoreColor,
-                letterSpacing: -0.1,
+                fontSize: 13,
+                height: 1.35,
+                fontWeight: FontWeight.w500,
+                color: _Lux.body,
               ),
             ),
+          ],
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.center,
+            children: [
+              for (final z in cueZones) _zoneCueChip(z, marked.contains(z)),
+            ],
           ),
-          const SizedBox(height: 16),
+          if (_selectedZone != TwinZone.none) ...[
+            const SizedBox(height: 12),
+            _twinFindingBridge(zoneFindings),
+          ],
+          const SizedBox(height: 18),
+          Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(
+                  text: '${report.overallScore}',
+                  style: GoogleFonts.inter(
+                    fontSize: 28,
+                    fontWeight: FontWeight.w600,
+                    color: _Lux.charcoal,
+                    letterSpacing: -0.8,
+                    height: 1.05,
+                  ),
+                ),
+                TextSpan(
+                  text: '  ·  ',
+                  style: GoogleFonts.inter(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w500,
+                    color: _Lux.muted,
+                  ),
+                ),
+                TextSpan(
+                  text: label,
+                  style: GoogleFonts.inter(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
+                    color: scoreColor,
+                    letterSpacing: -0.35,
+                  ),
+                ),
+              ],
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 6),
           Text(
-            report.calmHeadline,
+            report.monitorContextLine,
             textAlign: TextAlign.center,
             style: GoogleFonts.inter(
-              fontSize: 16.5,
+              fontSize: 14.5,
               fontWeight: FontWeight.w500,
-              color: _Lux.charcoal,
-              height: 1.4,
-              letterSpacing: -0.2,
+              color: _Lux.charcoalMid,
+              letterSpacing: -0.15,
             ),
           ),
           const SizedBox(height: 10),
+          Text(
+            report.photoTrustLine,
+            textAlign: TextAlign.center,
+            style: GoogleFonts.inter(
+              fontSize: 13,
+              height: 1.4,
+              fontWeight: FontWeight.w500,
+              color: _Lux.body,
+            ),
+          ),
+          const SizedBox(height: 8),
           Text(
             AnalysisReport.screeningBadge,
             textAlign: TextAlign.center,
@@ -1108,6 +1256,187 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _zoneCueChip(TwinZone zone, bool hasFinding) {
+    final selected = _selectedZone == zone;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => _onTwinZoneSelected(zone),
+        borderRadius: BorderRadius.circular(99),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
+          decoration: BoxDecoration(
+            color: selected ? _Lux.emerald : Colors.transparent,
+            borderRadius: BorderRadius.circular(99),
+            border: Border.all(
+              color: selected
+                  ? _Lux.emerald
+                  : hasFinding
+                  ? _Lux.gold.withValues(alpha: 0.28)
+                  : _Lux.border.withValues(alpha: 0.85),
+              width: selected ? 1.25 : 1,
+            ),
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: _Lux.emerald.withValues(alpha: 0.28),
+                      blurRadius: 10,
+                      offset: const Offset(0, 3),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (hasFinding) ...[
+                Container(
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: selected ? Colors.white : _Lux.gold,
+                  ),
+                ),
+                const SizedBox(width: 6),
+              ],
+              Text(
+                _zoneLabel(zone),
+                style: GoogleFonts.inter(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                  color: selected
+                      ? Colors.white
+                      : hasFinding
+                      ? _Lux.charcoalMid
+                      : _Lux.muted,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Compact zone summary under the twin — title + severity, or a calm empty.
+  Widget _twinFindingBridge(List<AnalysisIssue> zoneFindings) {
+    if (zoneFindings.isEmpty) {
+      return Text(
+        TwinZoneCopy.noIssuesLine(_selectedZone),
+        key: const Key('twin-zone-empty'),
+        textAlign: TextAlign.center,
+        style: GoogleFonts.inter(
+          fontSize: 13,
+          height: 1.4,
+          fontWeight: FontWeight.w500,
+          color: _Lux.muted,
+        ),
+      );
+    }
+
+    final first = zoneFindings.first;
+    final extra = zoneFindings.length - 1;
+    final sevColor = _severityColor(first.severity);
+
+    return Material(
+      key: const Key('twin-zone-summary'),
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () {
+          final idx = _orderedIssues.indexOf(first);
+          _openSurfaceEvidence(first, issueIndex: idx >= 0 ? idx : 0);
+        },
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          decoration: BoxDecoration(
+            color: _Lux.surface.withValues(alpha: 0.92),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: _Lux.border.withValues(alpha: 0.9)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: sevColor.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                    child: Text(
+                      first.severity,
+                      style: GoogleFonts.inter(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: sevColor,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      first.homeownerTitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.inter(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w600,
+                        color: _Lux.charcoal,
+                        height: 1.3,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              if (extra > 0) ...[
+                const SizedBox(height: 6),
+                Text(
+                  extra == 1
+                      ? '+1 more on ${_zoneLabel(_selectedZone)}'
+                      : '+$extra more on ${_zoneLabel(_selectedZone)}',
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: _Lux.muted,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 6),
+              Text(
+                first.planningCostLabel,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: _Lux.muted,
+                  height: 1.35,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'View evidence →',
+                style: GoogleFonts.inter(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w700,
+                  color: _Lux.emeraldDeep,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1139,101 +1468,95 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
 
   Widget _buildFindingCard(AnalysisIssue issue, int index) {
     final sevColor = _severityColor(issue.severity);
-    final slotLabel =
-        FindingRetakeService.slotCoachLabel(_slotForIssue(issue)).toLowerCase();
+    final slotLabel = FindingRetakeService.slotCoachLabel(
+      _slotForIssue(issue),
+    ).toLowerCase();
     final markedWrong = FindingFeedbackStore.instance.isMarkedWrong(
       reportId: _savedReportId,
       title: issue.homeownerTitle,
       location: issue.location,
     );
-    final costShort = issue.cost.trim().isEmpty ||
-            issue.cost.toUpperCase() == 'TBD'
-        ? 'TBD'
-        : issue.cost.trim();
+    final selectedHere =
+        _selectedZone != TwinZone.none && issue.twinZone == _selectedZone;
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: () => _openSurfaceEvidence(issue, issueIndex: index - 1),
-        borderRadius: BorderRadius.circular(22),
-        child: Container(
+        onTap: () {
+          _highlightZoneForIssue(issue);
+          _openSurfaceEvidence(issue, issueIndex: index - 1);
+        },
+        borderRadius: BorderRadius.circular(20),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
           margin: const EdgeInsets.only(bottom: 12),
-          decoration: _Lux.card(radius: 22),
+          decoration: BoxDecoration(
+            color: _Lux.surface,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: selectedHere
+                  ? _Lux.emerald.withValues(alpha: 0.35)
+                  : _Lux.border,
+              width: selectedHere ? 1.25 : 1,
+            ),
+            boxShadow: _Lux.softShadow(intensity: selectedHere ? 1.05 : 0.85),
+          ),
           clipBehavior: Clip.antiAlias,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Container(
-                height: 3.5,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      sevColor,
-                      sevColor.withValues(alpha: 0.35),
-                    ],
-                  ),
-                ),
+                height: 3,
+                color: sevColor.withValues(alpha: 0.85),
               ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(18, 16, 16, 14),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            issue.homeownerTitle,
-                            style: GoogleFonts.inter(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 16.5,
-                              color: _Lux.charcoal,
-                              height: 1.28,
-                              letterSpacing: -0.3,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        _pill(issue.severity, sevColor),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
                     Text(
-                      issue.location,
+                      issue.homeownerTitle,
+                      softWrap: true,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.inter(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 16.5,
+                        color: _Lux.charcoal,
+                        height: 1.28,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      issue.shortLocation,
+                      softWrap: true,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: GoogleFonts.inter(
                         color: _Lux.muted,
-                        fontSize: 13,
+                        fontSize: 12.5,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
-                    const SizedBox(height: 14),
-                    // Meta chips: confidence · cost
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        _metaChip(
-                          Icons.shield_outlined,
-                          '${issue.confidence}% confidence',
-                          _Lux.navy,
-                        ),
-                        _metaChip(
-                          Icons.payments_outlined,
-                          costShort,
-                          _Lux.charcoalMid,
-                        ),
-                        if (issue.needsCloserPhoto)
-                          _metaChip(
-                            Icons.photo_camera_outlined,
-                            'Closer photo helps',
-                            _Lux.gold,
-                          ),
-                      ],
+                    const SizedBox(height: 10),
+                    Text(
+                      [
+                        '${issue.confidence}% confidence',
+                        issue.planningCostLabel,
+                        if (issue.needsCloserPhoto) 'Closer photo helps',
+                      ].join('  ·  '),
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: _Lux.muted,
+                        height: 1.35,
+                      ),
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      issue.displayInsight,
+                      issue.companionNextStep,
+                      softWrap: true,
                       maxLines: 3,
                       overflow: TextOverflow.ellipsis,
                       style: GoogleFonts.inter(
@@ -1243,43 +1566,36 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
                         fontWeight: FontWeight.w400,
                       ),
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 14),
                     Row(
                       children: [
-                        Text(
-                          'View evidence',
-                          style: GoogleFonts.inter(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: _Lux.emeraldDeep,
-                          ),
-                        ),
-                        Icon(
-                          Icons.chevron_right_rounded,
-                          size: 18,
-                          color: _Lux.emerald.withValues(alpha: 0.85),
-                        ),
-                        const Spacer(),
-                        TextButton(
-                          onPressed: _reanalyzing
-                              ? null
-                              : () => _retakeForIssue(issue),
-                          style: TextButton.styleFrom(
-                            foregroundColor: issue.needsCloserPhoto
-                                ? _Lux.gold
-                                : _Lux.emeraldDeep,
-                            padding: const EdgeInsets.symmetric(horizontal: 6),
-                            visualDensity: VisualDensity.compact,
-                            minimumSize: Size.zero,
-                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          ),
+                        Expanded(
                           child: Text(
-                            issue.needsCloserPhoto
-                                ? 'Retake'
-                                : 'Retake $slotLabel',
+                            'View evidence →',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: GoogleFonts.inter(
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w600,
+                              fontSize: 14.5,
+                              fontWeight: FontWeight.w700,
+                              color: _Lux.emeraldDeep,
+                              letterSpacing: -0.2,
+                            ),
+                          ),
+                        ),
+                        Tooltip(
+                          message: 'Retake $slotLabel',
+                          child: TextButton(
+                            onPressed: _reanalyzing
+                                ? null
+                                : () => _retakeForIssue(issue),
+                            style: _findingActionButtonStyle(_Lux.muted),
+                            child: Text(
+                              'Retake',
+                              maxLines: 1,
+                              style: GoogleFonts.inter(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
                             ),
                           ),
                         ),
@@ -1287,17 +1603,12 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
                           onPressed: markedWrong
                               ? null
                               : () => _markFindingWrong(issue),
-                          style: TextButton.styleFrom(
-                            foregroundColor: _Lux.muted,
-                            padding: const EdgeInsets.symmetric(horizontal: 6),
-                            visualDensity: VisualDensity.compact,
-                            minimumSize: Size.zero,
-                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          ),
+                          style: _findingActionButtonStyle(_Lux.muted),
                           child: Text(
                             markedWrong ? 'Flagged' : 'Looks wrong',
+                            maxLines: 1,
                             style: GoogleFonts.inter(
-                              fontSize: 12.5,
+                              fontSize: 12,
                               fontWeight: FontWeight.w500,
                             ),
                           ),
@@ -1314,53 +1625,20 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
     );
   }
 
-  Widget _pill(String text, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(99),
-        border: Border.all(color: color.withValues(alpha: 0.18)),
-      ),
-      child: Text(
-        text,
-        style: GoogleFonts.inter(
-          color: color,
-          fontSize: 12,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 0.1,
-        ),
-      ),
+  ButtonStyle _findingActionButtonStyle(Color foreground) {
+    return TextButton.styleFrom(
+      foregroundColor: foreground,
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      visualDensity: VisualDensity.compact,
+      minimumSize: Size.zero,
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
     );
   }
 
-  Widget _metaChip(IconData icon, String label, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: _Lux.bg,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: _Lux.border),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: color.withValues(alpha: 0.85)),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: GoogleFonts.inter(
-              fontSize: 12.5,
-              fontWeight: FontWeight.w600,
-              color: _Lux.charcoalMid,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTimelineSection(List<AnalysisIssue> issues) {
+  Widget _buildTimelineSection(
+    List<AnalysisIssue> issues,
+    Map<AnalysisIssue, int> globalIndexByIssue,
+  ) {
     final buckets = <_TimelineBucket, List<AnalysisIssue>>{
       for (final b in _TimelineBucket.values) b: [],
     };
@@ -1374,7 +1652,7 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
         _sectionLabel('Recommended Timeline', ''),
         const SizedBox(height: 6),
         Text(
-          'A calm plan for what to do now versus later.',
+          'A maintenance plan for this property — tap an item to see the area and evidence.',
           style: GoogleFonts.inter(
             fontSize: 13.5,
             color: _Lux.muted,
@@ -1386,6 +1664,7 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
           _timelineRow(
             bucket: b,
             items: buckets[b]!,
+            globalIndexByIssue: globalIndexByIssue,
           ),
           const SizedBox(height: 10),
         ],
@@ -1396,6 +1675,7 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
   Widget _timelineRow({
     required _TimelineBucket bucket,
     required List<AnalysisIssue> items,
+    required Map<AnalysisIssue, int> globalIndexByIssue,
   }) {
     final accent = switch (bucket) {
       _TimelineBucket.today => _Lux.danger,
@@ -1418,13 +1698,7 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
                 height: 8,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: accent,
-                  boxShadow: [
-                    BoxShadow(
-                      color: accent.withValues(alpha: 0.35),
-                      blurRadius: 6,
-                    ),
-                  ],
+                  color: items.isEmpty ? _Lux.muted.withValues(alpha: 0.55) : accent,
                 ),
               ),
               const SizedBox(width: 10),
@@ -1438,19 +1712,20 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
                 ),
               ),
               const Spacer(),
-              Text(
-                items.isEmpty ? 'Clear' : '${items.length}',
-                style: GoogleFonts.inter(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w600,
-                  color: items.isEmpty ? _Lux.emerald : _Lux.muted,
+              if (items.isNotEmpty)
+                Text(
+                  '${items.length}',
+                  style: GoogleFonts.inter(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    color: _Lux.muted,
+                  ),
                 ),
-              ),
             ],
           ),
           const SizedBox(height: 6),
           Text(
-            items.isEmpty ? _bucketHint(bucket) : _bucketHint(bucket),
+            items.isEmpty ? _bucketEmptyState(bucket) : _bucketHint(bucket),
             style: GoogleFonts.inter(
               fontSize: 12.5,
               color: _Lux.muted,
@@ -1460,32 +1735,47 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
           if (items.isNotEmpty) ...[
             const SizedBox(height: 10),
             for (final issue in items.take(3))
-              Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.only(top: 5),
-                      child: Icon(
-                        Icons.circle,
-                        size: 5,
-                        color: accent.withValues(alpha: 0.7),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        issue.homeownerTitle,
-                        style: GoogleFonts.inter(
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w500,
-                          color: _Lux.charcoalMid,
-                          height: 1.3,
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () => _selectFindingFromPlan(
+                    issue,
+                    globalIndexByIssue[issue] ?? 0,
+                  ),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 5),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Icon(
+                            Icons.circle,
+                            size: 5,
+                            color: accent.withValues(alpha: 0.7),
+                          ),
                         ),
-                      ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            issue.homeownerTitle,
+                            style: GoogleFonts.inter(
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w500,
+                              color: _Lux.charcoalMid,
+                              height: 1.3,
+                            ),
+                          ),
+                        ),
+                        Icon(
+                          Icons.chevron_right_rounded,
+                          size: 18,
+                          color: _Lux.muted.withValues(alpha: 0.8),
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
             if (items.length > 3)
@@ -1509,10 +1799,10 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _sectionLabel('Photo gallery', '${photos.length}'),
+        _sectionLabel('Photos', '${photos.length}'),
         const SizedBox(height: 6),
         Text(
-          'Green = no linked findings · Amber/red = problem area in this scan.',
+          'Photos with linked evidence open Surface Evidence.',
           style: GoogleFonts.inter(
             fontSize: 13,
             color: _Lux.muted,
@@ -1530,10 +1820,8 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
               final shot = photos[index];
               final problem = _photoHasFindings(shot);
               final borderColor = problem
-                  ? (shot.index % 2 == 0
-                      ? _Lux.gold.withValues(alpha: 0.55)
-                      : _Lux.danger.withValues(alpha: 0.45))
-                  : _Lux.emerald.withValues(alpha: 0.45);
+                  ? _Lux.emerald.withValues(alpha: 0.55)
+                  : _Lux.border;
 
               return Material(
                 color: Colors.transparent,
@@ -1553,28 +1841,30 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
                         fit: StackFit.expand,
                         children: [
                           PhotoThumb(photo: shot.file),
-                          Positioned(
-                            top: 8,
-                            right: 8,
-                            child: Container(
-                              width: 12,
-                              height: 12,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: problem ? _Lux.gold : _Lux.emerald,
-                                border: Border.all(
-                                  color: Colors.white,
-                                  width: 1.5,
+                          if (problem)
+                            Positioned(
+                              top: 7,
+                              right: 7,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 3,
                                 ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withValues(alpha: 0.2),
-                                    blurRadius: 4,
+                                decoration: BoxDecoration(
+                                  color: _Lux.emeraldDeep.withValues(alpha: 0.92),
+                                  borderRadius: BorderRadius.circular(99),
+                                ),
+                                child: Text(
+                                  'Evidence',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 8.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.white,
+                                    letterSpacing: 0.15,
                                   ),
-                                ],
+                                ),
                               ),
                             ),
-                          ),
                           Positioned(
                             left: 0,
                             right: 0,
@@ -1612,191 +1902,72 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
   }
 
   Widget _buildCostSummary(AnalysisReport report) {
-    final range = report.estimatedRepairRange.trim().isEmpty
-        ? 'TBD'
-        : report.estimatedRepairRange.trim();
+    final withheld = CostCopy.isWithheldRange(report.estimatedRepairRange);
+    final range = withheld
+        ? CostCopy.withheld
+        : CostCopy.compact(report.estimatedRepairRange);
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(22),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            _Lux.surface,
-            _Lux.navyMist.withValues(alpha: 0.65),
-          ],
-        ),
-        border: Border.all(color: _Lux.border),
-        boxShadow: _Lux.softShadow(),
+        color: _Lux.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _Lux.border, width: 0.75),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Repair cost summary',
+            CostCopy.shortLabel,
             style: GoogleFonts.inter(
-              fontSize: 13,
+              fontSize: 12,
               fontWeight: FontWeight.w600,
               color: _Lux.muted,
-              letterSpacing: 0.1,
+              letterSpacing: 0.15,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           Text(
             range,
             style: GoogleFonts.inter(
-              fontSize: 28,
+              fontSize: 18,
               fontWeight: FontWeight.w600,
-              color: _Lux.charcoal,
-              letterSpacing: -0.7,
-              height: 1.1,
+              color: _Lux.charcoalMid,
+              letterSpacing: -0.35,
+              height: 1.2,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Text(
-            'Planning range only — not a contractor bid. Confirm on-site.',
+            withheld ? CostCopy.footnote : CostCopy.inlineNote,
             style: GoogleFonts.inter(
-              fontSize: 13,
+              fontSize: 12,
               color: _Lux.muted,
               fontWeight: FontWeight.w500,
+              height: 1.4,
             ),
           ),
-          if (report.highCount + report.mediumCount + report.lowCount > 0) ...[
-            const SizedBox(height: 14),
-            Row(
-              children: [
-                _costStat('High', report.highCount, _Lux.danger),
-                const SizedBox(width: 10),
-                _costStat('Medium', report.mediumCount, _Lux.gold),
-                const SizedBox(width: 10),
-                _costStat('Low', report.lowCount, _Lux.emerald),
-              ],
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _costStat(String label, int count, Color color) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-        decoration: BoxDecoration(
-          color: _Lux.surface.withValues(alpha: 0.8),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: _Lux.border),
-        ),
-        child: Column(
-          children: [
+          if (!withheld) ...[
+            const SizedBox(height: 6),
             Text(
-              '$count',
+              CostCopy.footnote,
               style: GoogleFonts.inter(
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-                color: color,
-              ),
-            ),
-            Text(
-              label,
-              style: GoogleFonts.inter(
-                fontSize: 11.5,
-                fontWeight: FontWeight.w600,
+                fontSize: 12,
                 color: _Lux.muted,
+                fontWeight: FontWeight.w500,
+                height: 1.4,
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPotentialSavings(AnalysisReport report) {
-    final high = report.highCount;
-    final medium = report.mediumCount;
-    // Heuristic narrative — not a calculated bid.
-    final factor = high > 0
-        ? '2–3×'
-        : medium > 0
-            ? '1.5–2×'
-            : '1.2–1.5×';
-    final headline = high > 0
-        ? 'Fixing high-priority items early can prevent damage that often costs $factor more later.'
-        : medium > 0
-            ? 'Planning medium items this season can avoid the $factor jump that weather and delay often bring.'
-            : 'Staying ahead of minor notes keeps costs near routine maintenance — not emergency repairs.';
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(22),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            _Lux.emeraldMist,
-            _Lux.surface,
-          ],
-        ),
-        border: Border.all(
-          color: _Lux.emerald.withValues(alpha: 0.18),
-        ),
-        boxShadow: _Lux.softShadow(intensity: 0.7),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(13),
-              color: _Lux.emerald.withValues(alpha: 0.12),
-            ),
-            child: const Icon(
-              Icons.savings_outlined,
-              color: _Lux.emeraldDeep,
-              size: 22,
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Potential savings',
-                  style: GoogleFonts.inter(
-                    fontSize: 14.5,
-                    fontWeight: FontWeight.w700,
-                    color: _Lux.charcoal,
-                    letterSpacing: -0.15,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  headline,
-                  style: GoogleFonts.inter(
-                    fontSize: 14,
-                    height: 1.45,
-                    fontWeight: FontWeight.w400,
-                    color: _Lux.body,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Illustrative only — not a guarantee or bid.',
-                  style: GoogleFonts.inter(
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w500,
-                    color: _Lux.muted,
-                  ),
-                ),
-              ],
+          const SizedBox(height: 6),
+          Text(
+            PrivacyCopy.screeningReminder,
+            style: GoogleFonts.inter(
+              fontSize: 12,
+              color: _Lux.muted,
+              fontWeight: FontWeight.w500,
+              height: 1.4,
             ),
           ),
         ],
@@ -1817,9 +1988,7 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
             decoration: BoxDecoration(
               color: _Lux.emerald.withValues(alpha: 0.1),
               shape: BoxShape.circle,
-              border: Border.all(
-                color: _Lux.emerald.withValues(alpha: 0.16),
-              ),
+              border: Border.all(color: _Lux.emerald.withValues(alpha: 0.16)),
             ),
             child: const Icon(
               Icons.verified_rounded,
@@ -1840,7 +2009,7 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
           ),
           const SizedBox(height: 10),
           Text(
-            'FirstSign did not flag high-priority exterior defects. Keep seasonal maintenance, and re-scan after storms.',
+            'First Sign did not flag high-priority exterior defects. Keep seasonal maintenance, and re-scan after storms.',
             textAlign: TextAlign.center,
             style: GoogleFonts.inter(
               fontSize: 14.5,
@@ -1867,7 +2036,8 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
           ),
           const SizedBox(height: 12),
           Text(
-            'No findings in ${_zoneLabel(_selectedZone)}',
+            TwinZoneCopy.noIssuesLine(_selectedZone),
+            textAlign: TextAlign.center,
             style: GoogleFonts.inter(
               fontWeight: FontWeight.w600,
               fontSize: 16,
@@ -1999,147 +2169,6 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
     );
   }
 
-  Widget _buildTwinViewCard(AnalysisReport report) {
-    final marked = report.markedTwinZones;
-    final width = MediaQuery.sizeOf(context).width;
-    final twinSize = (width - 72).clamp(220.0, 280.0);
-
-    return Container(
-      width: double.infinity,
-      decoration: _Lux.card(radius: 20),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          InkWell(
-            onTap: () => setState(() => _twinExpanded = !_twinExpanded),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(18, 16, 14, 16),
-              child: Row(
-                children: [
-                  Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: _Lux.emeraldMist,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(
-                      Icons.view_in_ar_rounded,
-                      size: 18,
-                      color: _Lux.emerald,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'AI Digital Twin',
-                          style: GoogleFonts.inter(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
-                            color: _Lux.charcoal,
-                          ),
-                        ),
-                        Text(
-                          _selectedZone == TwinZone.none
-                              ? 'Living model · tap a zone to filter findings'
-                              : 'Focused: ${_zoneLabel(_selectedZone)}',
-                          style: GoogleFonts.inter(
-                            fontSize: 12.5,
-                            color: _Lux.muted,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (_selectedZone != TwinZone.none)
-                    TextButton(
-                      onPressed: () =>
-                          setState(() => _selectedZone = TwinZone.none),
-                      style: TextButton.styleFrom(
-                        foregroundColor: _Lux.emeraldDeep,
-                        visualDensity: VisualDensity.compact,
-                      ),
-                      child: const Text('Clear'),
-                    ),
-                  Icon(
-                    _twinExpanded
-                        ? Icons.expand_less_rounded
-                        : Icons.expand_more_rounded,
-                    color: _Lux.muted,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (_twinExpanded) ...[
-            const Divider(height: 1, thickness: 0.75, color: _Lux.border),
-            Container(
-              width: double.infinity,
-              color: _Lux.bg,
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
-              child: Column(
-                children: [
-                  Center(
-                    child: DigitalTwinHouse(
-                      size: twinSize,
-                      selectedZone: _selectedZone,
-                      onZoneSelected: _onTwinZoneSelected,
-                      autoRotate: _selectedZone == TwinZone.none,
-                      showMarkers: marked.isNotEmpty,
-                      markedZones: marked,
-                      compact: false,
-                    ),
-                  ),
-                  if (marked.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      alignment: WrapAlignment.center,
-                      children: [
-                        for (final z in TwinZone.values)
-                          if (z != TwinZone.none && marked.contains(z))
-                            ActionChip(
-                              label: Text(
-                                _zoneLabel(z),
-                                style: GoogleFonts.inter(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: _selectedZone == z
-                                      ? Colors.white
-                                      : _Lux.charcoal,
-                                ),
-                              ),
-                              backgroundColor: _selectedZone == z
-                                  ? _Lux.emerald
-                                  : _Lux.surface,
-                              side: BorderSide(
-                                color: _selectedZone == z
-                                    ? _Lux.emerald
-                                    : _Lux.border,
-                              ),
-                              onPressed: () => _onTwinZoneSelected(z),
-                              visualDensity: VisualDensity.compact,
-                              materialTapTargetSize:
-                                  MaterialTapTargetSize.shrinkWrap,
-                            ),
-                      ],
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
   Widget _buildActionBar() {
     final quoteReady = QuoteSubmitConfig.isConfigured;
     return Column(
@@ -2152,9 +2181,7 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
             decoration: BoxDecoration(
               color: const Color(0xFFFFF7ED),
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: _Lux.gold.withValues(alpha: 0.18),
-              ),
+              border: Border.all(color: _Lux.gold.withValues(alpha: 0.18)),
             ),
             child: Text(
               'Email delivery is not configured in this build. You can still '
@@ -2175,11 +2202,7 @@ class _AnalysisReportScreenState extends State<AnalysisReportScreen>
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(16),
               gradient: const LinearGradient(
-                colors: [
-                  Color(0xFF10B981),
-                  _Lux.emerald,
-                  _Lux.emeraldDeep,
-                ],
+                colors: [Color(0xFF10B981), _Lux.emerald, _Lux.emeraldDeep],
               ),
               boxShadow: [
                 BoxShadow(

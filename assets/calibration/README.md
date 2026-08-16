@@ -1,47 +1,110 @@
-# Real-photo calibration fixtures
+# Calibration fixtures (First Sign)
 
-This tree already includes **real stock exterior photos** (Unsplash) under each
-scenario folder, with `manifest.json` files. See `SOURCES.md` for licensing notes.
+Two harnesses share this tree:
 
-You can replace any image with your own house photos (keep filenames or update
-the manifest). Drop **real exterior photos** here to override painted fallbacks.
+| Harness | Test | Purpose |
+|---------|------|---------|
+| **Field pack (A1)** | `flutter test test/calibration_harness_test.dart` | Manifest `expected` bands for field photos |
+| **Pixel pipeline** | `flutter test test/photo_calibration_test.dart` | Legacy golden bands + painted fallbacks |
 
-## Layout
+Stock Unsplash photos seed many folders. See `SOURCES.md` for licensing.
+Replace with **local house photos** when available (keep filenames or update the manifest).
+
+> **Do not change analysis thresholds** to make fixtures pass. Widen `expected` bands or fix photos first; threshold work is a separate ticket.
+
+---
+
+## Field pack layout (A1)
 
 ```
 assets/calibration/
-  README.md
-  healthy_multi_angle/
-    manifest.json
-    00_front.jpg
-    01_left.jpg
-    …
-  severe_roof_damage/
-    manifest.json
-    00_front.jpg
-    01_roof.jpg
-    …
+  healthy_multi/          # control multi-angle
+  paint_clear/            # clear paint peel
+  drainage_grade/         # grade / foundation / drainage
+  limited_dark/           # weak / dark single frame
+  mixed_ambiguous/        # mixed hard cases
+  …
 ```
 
-## manifest.json example
+Each field scenario folder:
+
+```
+<scenario_id>/
+  manifest.json     # required
+  README.md         # how to drop real photos
+  00_….jpg          # optional until you add field photos
+```
+
+### Field `manifest.json` schema
 
 ```json
 {
-  "id": "severe_roof_damage",
-  "description": "Real storm-damaged asphalt roof",
+  "id": "healthy_multi",
+  "title": "Healthy multi-angle control home",
   "photos": [
     { "file": "00_front.jpg", "slot": "front", "label": "Front of home" },
-    { "file": "01_roof.jpg", "slot": "roof", "label": "Roof field" },
-    { "file": "02_closeup.jpg", "slot": "problemCloseup", "label": "Close-up" }
-  ]
+    { "file": "01_left.jpg", "slot": "left", "label": "Left side" }
+  ],
+  "expected": {
+    "maxFindings": 12,
+    "allowedCategories": ["paint", "siding", "roof", "gutter", "drainage", "foundation", "window", "vegetation", "general"],
+    "forbiddenCategories": [],
+    "scoreMin": 55,
+    "scoreMax": 98,
+    "maxSeverity": "Medium",
+    "needsCloserPhotoOk": true
+  },
+  "notes": "Optional free-text notes for the lab book."
 }
 ```
+
+| Field | Meaning |
+|-------|---------|
+| `maxFindings` | `report.issues.length` must be ≤ this |
+| `minFindings` | `report.issues.length` must be ≥ this (default 0) |
+| `allowedCategories` | If non-empty, every inferred category (except `general`) must be listed |
+| `requiredCategories` | If non-empty, each listed category must appear at least once |
+| `forbiddenCategories` | Inferred category must not appear |
+| `scoreMin` / `scoreMax` | Inclusive overall score band |
+| `maxSeverity` | No finding may exceed this (`Low` \| `Medium` \| `High`) |
+| `needsCloserPhotoOk` | If `false`, any `needsCloserPhoto` finding fails |
+| `requireNeedsCloserPhoto` | If `true`, at least one finding must have `needsCloserPhoto` |
+
+Categories are **inferred from finding text** (title/location/insight) in the harness only — analysis models are unchanged.
 
 ### Slot values
 
 `front` · `left` · `right` · `rear` · `roof` · `problemCloseup`
 
-## Scenario IDs (must match harness)
+### Field scenario IDs
+
+| ID | Intent |
+|----|--------|
+| `healthy_multi` | Clean multi-angle control |
+| `paint_clear` | Clear paint film failure |
+| `drainage_grade` | Grade / foundation / drainage |
+| `limited_dark` | Dark / limited visibility |
+| `mixed_ambiguous` | Mixed ambiguous signals |
+
+### Add a new field scenario
+
+1. Create `assets/calibration/<id>/` with `manifest.json` (schema above).
+2. Drop JPEG/PNG photos; list them under `photos[]`.
+3. Add a short `README.md` (copy from `healthy_multi/README.md`).
+4. Register the folder in `pubspec.yaml` under `flutter.assets`.
+5. Append `<id>` to `FieldCalibrationHarness.scenarioIds` in  
+   `lib/services/field_calibration_harness.dart`.
+6. Run:
+
+```bash
+flutter test test/calibration_harness_test.dart
+```
+
+**Empty photos:** leave `photos: []` or omit image files — the harness **skips** that scenario (not a failure).
+
+---
+
+## Legacy pixel-pipeline scenarios
 
 | ID | Intent |
 |----|--------|
@@ -54,22 +117,21 @@ assets/calibration/
 | `weak_single_photo` | Bad/ambiguous single shot |
 | `aging_roof_granules` | Aging asphalt, not catastrophic |
 
-## Register assets
-
-After adding folders, ensure `pubspec.yaml` includes:
-
-```yaml
-flutter:
-  assets:
-    - assets/calibration/
-```
-
-(Already configured for the `assets/calibration/` tree.)
-
-## Run calibration
+Legacy manifests may use `description` + optional `groundTruth` (no `expected` block).
 
 ```bash
 flutter test test/photo_calibration_test.dart
 ```
 
-Painted fixtures run when a scenario has no real photos. When real photos are present, the same score/severity bands apply — tune detection if a real set fails.
+---
+
+## Register assets
+
+```yaml
+flutter:
+  assets:
+    - assets/calibration/
+    - assets/calibration/<scenario_id>/
+```
+
+See root `pubspec.yaml` for the full list.

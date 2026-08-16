@@ -19,6 +19,7 @@ import 'screens/privacy_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/report_history_screen.dart';
 import 'services/branding_store.dart';
+import 'widgets/brand_mark.dart';
 import 'services/capture_draft_store.dart';
 import 'services/finding_feedback_store.dart';
 import 'services/lead_store.dart';
@@ -26,6 +27,7 @@ import 'services/local_blob_store.dart';
 import 'services/onboarding_store.dart';
 import 'services/profile_store.dart';
 import 'services/report_store.dart';
+import 'legal/product_copy.dart';
 import 'theme/app_lux.dart';
 
 Future<void> main() async {
@@ -80,7 +82,7 @@ class FirstSignApp extends StatelessWidget {
     ).apply(bodyColor: AppLux.body, displayColor: AppLux.charcoal);
 
     return MaterialApp(
-      title: 'FirstSign',
+      title: ProductCopy.displayName,
       debugShowCheckedModeBanner: false,
       theme: base.copyWith(
         textTheme: inter,
@@ -236,12 +238,18 @@ class FirstSignApp extends StatelessWidget {
           case '/photo-review':
             final args = settings.arguments;
             final photos = <CapturePhoto>[];
-            if (args is List<CapturePhoto>) {
-              photos.addAll(args);
-            } else if (args is List<XFile>) {
-              photos.addAll(CapturePhoto.fromXFiles(args));
-            } else if (args is List) {
-              for (final item in args) {
+            var lowDetailHint = false;
+            Object? photoArgs = args;
+            if (args is Map) {
+              photoArgs = args['photos'];
+              lowDetailHint = args['lowDetailHint'] == true;
+            }
+            if (photoArgs is List<CapturePhoto>) {
+              photos.addAll(photoArgs);
+            } else if (photoArgs is List<XFile>) {
+              photos.addAll(CapturePhoto.fromXFiles(photoArgs));
+            } else if (photoArgs is List) {
+              for (final item in photoArgs) {
                 if (item is CapturePhoto) {
                   photos.add(item);
                 } else if (item is XFile) {
@@ -256,7 +264,10 @@ class FirstSignApp extends StatelessWidget {
               }
             }
             return MaterialPageRoute<void>(
-              builder: (_) => PhotoReviewScreen(photos: photos),
+              builder: (_) => PhotoReviewScreen(
+                photos: photos,
+                lowDetailHint: lowDetailHint,
+              ),
               settings: settings,
             );
           case '/saved-report':
@@ -307,8 +318,8 @@ class FirstSignApp extends StatelessWidget {
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
-  static const assetPath = 'assets/icon/app_icon.png';
-  static const backgroundColor = Color(0xFF0D1B2A);
+  static const assetPath = BrandMark.assetPath;
+  static const backgroundColor = BrandMark.navy;
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
@@ -382,20 +393,10 @@ class _SplashScreenState extends State<SplashScreen>
           builder: (context, child) {
             return Opacity(opacity: _opacity.value, child: child);
           },
-          child: ColoredBox(
+          child: const ColoredBox(
             color: SplashScreen.backgroundColor,
             child: Center(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(28),
-                child: Image.asset(
-                  SplashScreen.assetPath,
-                  width: 128,
-                  height: 128,
-                  fit: BoxFit.cover,
-                  filterQuality: FilterQuality.high,
-                  gaplessPlayback: true,
-                ),
-              ),
+              child: BrandMark(size: 128, radius: 28),
             ),
           ),
         ),

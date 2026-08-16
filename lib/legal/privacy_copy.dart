@@ -1,3 +1,6 @@
+import 'cost_copy.dart';
+import 'product_copy.dart';
+
 /// On-device privacy / data-use copy and shared screening disclaimers.
 ///
 /// Single source of truth so Home, Report, PDF, Quote, and Privacy stay aligned
@@ -13,10 +16,8 @@ abstract final class PrivacyCopy {
       'your contact details and a report summary to our team; a copy is also '
       'saved on this device.';
 
-  static const badge = 'Local-first · photos not uploaded by default';
-
   static const body = '''
-FirstSign is built local-first.
+${ProductCopy.displayName} is built local-first.
 
 • Photos you capture are stored on this device (compressed) so you can reopen reports and resume a scan.
 • Analysis runs on-device using image features. If a Google Cloud Vision API key is set at build time, images may be sent to Google for that analysis pass only.
@@ -48,7 +49,7 @@ This is an AI exterior screening tool — not a licensed home inspection, apprai
 
   /// Canonical long disclaimer for report UI + PDF + shared surfaces.
   static const screeningDisclaimer =
-      'FirstSign is an AI-assisted exterior screening tool based only on the photos you submit. '
+      '${ProductCopy.displayName} is an AI-assisted exterior screening tool based only on the photos you submit. '
       'It is not a licensed home inspection, appraisal, engineering report, insurance assessment, '
       'or contractor bid. Confidence scores reflect photo evidence strength — not a guarantee. '
       'Confirm every finding on-site with a qualified pro before repairs, claims, or purchase decisions.';
@@ -56,22 +57,14 @@ This is an AI exterior screening tool — not a licensed home inspection, apprai
   /// Short chip/badge text for report headers and PDF.
   static const screeningBadge = 'Photo screening · not an inspection';
 
-  /// Compact home-footer product note (includes screening language).
-  static const homeFooter =
-      'FirstSign is built for homeowners first. Pro tools (leads & branding) '
-      'are optional — open from the hammer icon when you need them. This is a '
-      'screening assistant, not a licensed inspection.';
-
-  /// Planning-range footnote (report cards, PDF).
-  static const planningRangeNote =
-      'Planning ranges only — not a contractor bid or insurance estimate.';
+  /// Planning-range footnote (report cards, PDF). Canonical text in [CostCopy].
+  static const planningRangeNote = CostCopy.footnote;
 
   // ── Quote request ────────────────────────────────────────────────────────
 
   static const quoteIntro =
       'Share your contact details so we can arrange a contractor quote. '
-      'AI estimates are planning ranges only — this is a screening tool, not a '
-      'licensed inspection or firm bid.';
+      '${CostCopy.inlineNote}';
 
   static const quoteFootnote =
       'Submitting emails your name, phone, email, address, score, top findings, '
@@ -95,6 +88,20 @@ This is an AI exterior screening tool — not a licensed home inspection, apprai
 
   /// PDF closing line.
   static const pdfShareNote =
-      'Share this PDF with a contractor, or request a quote in FirstSign to '
+      'Share this PDF with a contractor, or request a quote in ${ProductCopy.displayName} to '
       'email a summary to our team for follow-up.';
+
+  // ── Closer photo / limited visibility (presentation only) ───────────────
+
+  static const closerPhotoTitle = 'Closer photo needed';
+
+  static const closerPhotoBody =
+      'This screening used a limited or dark view. Move closer, add more light, '
+      'and retake the main elevations for a stronger result.';
+
+  static const closerPhotoAction = 'Retake photos';
+
+  /// Soft capture-flow hint. Does not block continue.
+  static const closerPhotoCaptureTip =
+      'Low detail detected — a closer or better-lit shot will improve accuracy.';
 }

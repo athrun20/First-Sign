@@ -275,9 +275,9 @@ class _ContractorCard extends StatelessWidget {
         splashColor: AppLux.teal.withValues(alpha: 0.05),
         highlightColor: AppLux.teal.withValues(alpha: 0.02),
         child: Ink(
-          decoration: AppLux.card(radius: 20).copyWith(
-            color: c.isActive ? AppLux.surface : AppLux.cardFill,
-          ),
+          decoration: AppLux.card(
+            radius: 20,
+          ).copyWith(color: c.isActive ? AppLux.surface : AppLux.cardFill),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(18, 16, 12, 16),
             child: Row(
@@ -404,9 +404,7 @@ class _ActiveBadge extends StatelessWidget {
         color: active ? AppLux.tealMist : const Color(0xFFF5F5F4),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(
-          color: active
-              ? AppLux.teal.withValues(alpha: 0.22)
-              : AppLux.border,
+          color: active ? AppLux.teal.withValues(alpha: 0.22) : AppLux.border,
           width: 0.75,
         ),
       ),
@@ -673,10 +671,7 @@ class _ContractorEditorScreenState extends State<ContractorEditorScreen> {
               textInputAction: TextInputAction.next,
               cursorColor: AppLux.teal,
               style: _fieldStyle(),
-              decoration: _fieldDecoration(
-                radius,
-                hint: 'Contact name',
-              ),
+              decoration: _fieldDecoration(radius, hint: 'Contact name'),
             ),
             const SizedBox(height: 18),
 
@@ -731,10 +726,7 @@ class _ContractorEditorScreenState extends State<ContractorEditorScreen> {
               ),
             ),
             const SizedBox(height: 12),
-            _NationalToggle(
-              national: _national,
-              onChanged: _setNational,
-            ),
+            _NationalToggle(national: _national, onChanged: _setNational),
             if (!_national) ...[
               const SizedBox(height: 12),
               Row(
@@ -878,10 +870,7 @@ class _ContractorEditorScreenState extends State<ContractorEditorScreen> {
                     _isActive
                         ? 'Eligible for future lead matching'
                         : 'Hidden from matching until reactivated',
-                    style: GoogleFonts.inter(
-                      fontSize: 13,
-                      color: AppLux.muted,
-                    ),
+                    style: GoogleFonts.inter(fontSize: 13, color: AppLux.muted),
                   ),
                   value: _isActive,
                   activeThumbColor: AppLux.teal,
@@ -1063,10 +1052,7 @@ class _TradeChip extends StatelessWidget {
 }
 
 class _NationalToggle extends StatelessWidget {
-  const _NationalToggle({
-    required this.national,
-    required this.onChanged,
-  });
+  const _NationalToggle({required this.national, required this.onChanged});
 
   final bool national;
   final ValueChanged<bool> onChanged;

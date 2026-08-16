@@ -86,7 +86,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(
-          'Delete all FirstSign data?',
+          'Delete all First Sign data?',
           style: GoogleFonts.inter(fontWeight: FontWeight.w700),
         ),
         content: Text(
@@ -120,7 +120,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         behavior: SnackBarBehavior.floating,
         backgroundColor: AppLux.charcoal,
         content: Text(
-          'All local FirstSign data deleted on this device.',
+          'All local First Sign data deleted on this device.',
           style: GoogleFonts.inter(
             fontWeight: FontWeight.w600,
             color: Colors.white,
@@ -211,7 +211,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 const SizedBox(height: 12),
                 _LinkCard(
                   icon: Icons.lightbulb_outline_rounded,
-                  title: 'How FirstSign works',
+                  title: 'How First Sign works',
                   subtitle: 'Full Assessment vs Quick Scan — reopen anytime.',
                   mist: false,
                   onTap: () => showFirstSignOnboarding(context),
@@ -221,7 +221,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 AppLux.sectionHeader('Contact details'),
                 const SizedBox(height: 6),
                 Text(
-                  'Saved only on this device. Autofills quote requests in FirstSign.',
+                  'Saved only on this device. Autofills quote requests in First Sign.',
                   style: GoogleFonts.inter(
                     fontSize: 13,
                     height: 1.45,

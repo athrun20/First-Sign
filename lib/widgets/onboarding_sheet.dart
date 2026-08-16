@@ -69,7 +69,7 @@ class _OnboardingSheet extends StatelessWidget {
               children: [
                 const SizedBox(width: 8),
                 Text(
-                  'Welcome to FirstSign',
+                  'Welcome to First Sign',
                   style: GoogleFonts.inter(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
@@ -118,7 +118,7 @@ class _OnboardingSheet extends StatelessWidget {
                   const SizedBox(height: 10),
                   Text(
                     'No account needed. Photos and reports stay on this device '
-                    'until you choose to request a quote through FirstSign.',
+                    'until you choose to request a quote through First Sign.',
                     style: GoogleFonts.inter(
                       fontSize: 14,
                       height: 1.5,
@@ -189,7 +189,7 @@ class _OnboardingSheet extends StatelessWidget {
                       onPressed: onDismiss,
                       style: AppLux.primaryButton(),
                       child: Text(
-                        'Continue to FirstSign',
+                        'Continue to First Sign',
                         style: GoogleFonts.inter(
                           fontWeight: FontWeight.w700,
                           fontSize: 15.5,

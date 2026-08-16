@@ -1,0 +1,41 @@
+{
+  "id": "drainage_grade",
+  "title": "Foundation / grade / drainage concern",
+  "photos": [
+    {
+      "file": "01_soil.jpg",
+      "slot": "problemCloseup",
+      "label": "Two PVC foundation discharge outlets at grade"
+    },
+    {
+      "file": "02_closeup.jpg",
+      "slot": "problemCloseup",
+      "label": "Discharge pipe dripping onto foundation and soil"
+    }
+  ],
+  "expected": {
+    "maxFindings": 14,
+    "minFindings": 1,
+    "allowedCategories": [
+      "foundation",
+      "drainage",
+      "gutter",
+      "paint",
+      "siding",
+      "roof",
+      "window",
+      "vegetation",
+      "general",
+      "rust",
+      "chimney",
+      "wiring"
+    ],
+    "requiredCategories": ["drainage"],
+    "forbiddenCategories": [],
+    "scoreMin": 30,
+    "scoreMax": 94,
+    "maxSeverity": "High",
+    "needsCloserPhotoOk": true
+  },
+  "notes": "Field photos: dual PVC outlets at the foundation line plus a dripping pipe. Must yield a drainage finding (not clean ~95/0)."
+}

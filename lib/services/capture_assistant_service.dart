@@ -130,7 +130,8 @@ class CaptureAssistantService {
     CaptureShotId? focusId,
   }) {
     if (filledRequired == 0) {
-      return 'Start with the front elevation — full house in frame works best.';
+      // Empty first shot: coach body covers framing — keep session quiet.
+      return '';
     }
 
     if (filledRequired >= requiredTotal) {
@@ -309,8 +310,7 @@ class CaptureAssistantService {
       case CaptureShotId.front:
         return const _ShotPack(
           headline: 'Frame the whole front',
-          body:
-              'Roof edge to foundation in one shot. The AI uses this as your baseline elevation.',
+          body: 'Roof edge to foundation in one calm, level shot.',
           icon: Icons.home_outlined,
         );
       case CaptureShotId.left:

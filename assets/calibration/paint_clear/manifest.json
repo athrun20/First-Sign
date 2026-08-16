@@ -1,0 +1,44 @@
+{
+  "id": "paint_clear",
+  "title": "Clear exterior paint film failure",
+  "photos": [
+    {
+      "file": "00_front.jpg",
+      "slot": "front",
+      "label": "Peeling white paint on clapboard"
+    },
+    {
+      "file": "01_left.jpg",
+      "slot": "left",
+      "label": "Failing exterior film second angle"
+    },
+    {
+      "file": "02_closeup.jpg",
+      "slot": "problemCloseup",
+      "label": "Paint peel close-up"
+    }
+  ],
+  "expected": {
+    "maxFindings": 14,
+    "allowedCategories": [
+      "paint",
+      "siding",
+      "roof",
+      "gutter",
+      "drainage",
+      "foundation",
+      "window",
+      "vegetation",
+      "general",
+      "rust",
+      "chimney",
+      "wiring"
+    ],
+    "forbiddenCategories": [],
+    "scoreMin": 35,
+    "scoreMax": 95,
+    "maxSeverity": "High",
+    "needsCloserPhotoOk": true
+  },
+  "notes": "Labeled paint peel. Replace with local house photos when available. Seeded from peeling_paint stock set."
+}

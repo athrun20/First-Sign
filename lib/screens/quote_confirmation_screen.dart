@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../legal/cost_copy.dart';
 import '../legal/privacy_copy.dart';
+import '../legal/product_copy.dart';
 import '../models/lead_models.dart';
 import '../theme/app_lux.dart';
 
 /// Homeowner-facing confirmation after a quote request is submitted.
 class QuoteConfirmationScreen extends StatelessWidget {
+  /// [deliveredRemotely] is true when Formspree (or the configured endpoint)
+  /// accepted the request; false when the lead was saved only on-device.
   const QuoteConfirmationScreen({
     super.key,
     required this.lead,
@@ -16,6 +20,7 @@ class QuoteConfirmationScreen extends StatelessWidget {
   final QuoteLead lead;
 
   /// True when Formspree (or configured endpoint) accepted the request.
+  /// False when the request was saved locally only (offline / config / error).
   final bool deliveredRemotely;
 
   @override
@@ -83,7 +88,7 @@ class QuoteConfirmationScreen extends StatelessWidget {
                             ),
                             const SizedBox(height: 8),
                             Text(
-                              'FirstSign',
+                              ProductCopy.displayName,
                               textAlign: TextAlign.center,
                               style: GoogleFonts.inter(
                                 fontSize: 12.5,
@@ -109,10 +114,15 @@ class QuoteConfirmationScreen extends StatelessWidget {
                             const SizedBox(height: 14),
                             Container(
                               width: double.infinity,
-                              padding:
-                                  const EdgeInsets.fromLTRB(14, 12, 14, 12),
-                              decoration:
-                                  AppLux.goldNote(radius: AppLux.radiusXl),
+                              padding: const EdgeInsets.fromLTRB(
+                                14,
+                                12,
+                                14,
+                                12,
+                              ),
+                              decoration: AppLux.goldNote(
+                                radius: AppLux.radiusXl,
+                              ),
                               child: Text(
                                 PrivacyCopy.screeningReminder,
                                 textAlign: TextAlign.center,
@@ -127,10 +137,13 @@ class QuoteConfirmationScreen extends StatelessWidget {
                             const SizedBox(height: 20),
                             Container(
                               width: double.infinity,
-                              padding:
-                                  const EdgeInsets.fromLTRB(18, 16, 18, 16),
-                              decoration:
-                                  AppLux.card(radius: AppLux.radius3xl),
+                              padding: const EdgeInsets.fromLTRB(
+                                18,
+                                16,
+                                18,
+                                16,
+                              ),
+                              decoration: AppLux.card(radius: AppLux.radius3xl),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
@@ -155,8 +168,7 @@ class QuoteConfirmationScreen extends StatelessWidget {
                                     lead.preferredContact,
                                   ),
                                   const Padding(
-                                    padding:
-                                        EdgeInsets.symmetric(vertical: 14),
+                                    padding: EdgeInsets.symmetric(vertical: 14),
                                     child: Divider(
                                       height: 1,
                                       thickness: AppLux.borderWidth,
@@ -186,10 +198,30 @@ class QuoteConfirmationScreen extends StatelessWidget {
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    'Planning range ${lead.estimatedRepairRange}',
+                                    CostCopy.labeled(lead.estimatedRepairRange),
                                     style: GoogleFonts.inter(
                                       fontSize: 13,
                                       color: AppLux.body,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    CostCopy.inlineNote,
+                                    style: GoogleFonts.inter(
+                                      fontSize: 12,
+                                      height: 1.4,
+                                      color: AppLux.muted,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    CostCopy.footnote,
+                                    style: GoogleFonts.inter(
+                                      fontSize: 12,
+                                      height: 1.4,
+                                      color: AppLux.muted,
                                       fontWeight: FontWeight.w500,
                                     ),
                                   ),

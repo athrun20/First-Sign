@@ -1,4 +1,4 @@
-# Build FirstSign Android release with Formspree + Vision dart-defines.
+# Build First Sign Android release with Formspree + Vision dart-defines.
 #
 # Usage (from project root):
 #   .\scripts\build_android_release.ps1              # AAB (Play Store)
@@ -23,7 +23,7 @@ Set-Location $root
 $envFile = Assert-FormspreeEnvFile
 
 Write-Host ""
-Write-Host "FirstSign Android release build" -ForegroundColor Green
+Write-Host "First Sign Android release build" -ForegroundColor Green
 Write-FormspreeEnvStatus -EnvFile $envFile
 
 $keyProps = Join-Path $root "android\key.properties"

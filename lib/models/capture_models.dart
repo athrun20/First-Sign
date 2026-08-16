@@ -137,7 +137,6 @@ const CaptureShotDef kQuickScanShotDef = CaptureShotDef(
       'Step back in good light, keep the camera level, and fill the frame with '
       'the subject. Optional: tag the area below so screening prioritizes the '
       'right systems.',
-  required: true,
 );
 
 /// Optional area tags for Quick Scan (improves analysis slot binding).
@@ -204,6 +203,19 @@ class PhotoQualityResult {
   });
 
   bool get hasWarnings => warnings.isNotEmpty;
+
+  /// Dark, underexposed, or low-resolution frame — capture tip only.
+  bool get isDarkOrLowDetail {
+    final b = brightness;
+    if (b != null && b < 0.18) return true;
+    if (warnings.isEmpty) return false;
+    final blob = warnings.join(' ').toLowerCase();
+    return blob.contains('dark') ||
+        blob.contains('low-res') ||
+        blob.contains('low detail') ||
+        blob.contains('resolution is low') ||
+        blob.contains('very small');
+  }
 
   String get summary {
     if (ok && !hasWarnings) return 'Looks good';

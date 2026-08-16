@@ -5,12 +5,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../legal/product_copy.dart';
 import '../models/saved_report.dart';
 import '../services/capture_draft_store.dart';
 import '../services/home_insight.dart';
 import '../services/lead_store.dart';
 import '../services/onboarding_store.dart';
 import '../services/report_store.dart';
+import '../widgets/brand_mark.dart';
 import '../widgets/onboarding_sheet.dart';
 
 /// Premium Home tokens — living AI dashboard (Apple Health for homes).
@@ -79,19 +81,18 @@ abstract final class _HomeLux {
         color: glass,
         borderRadius: BorderRadius.circular(radius),
         border: Border.all(
-          color: Colors.white.withValues(alpha: 0.9),
-          width: 1.1,
+          color: Colors.white.withValues(alpha: 0.88),
+          width: 1,
         ),
-        boxShadow: softShadow(),
+        boxShadow: softShadow(intensity: 0.9),
+        // Soft, native — not multi-stop template glass.
         gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
           colors: [
-            surface.withValues(alpha: 0.97),
-            emeraldMist.withValues(alpha: 0.55),
-            navyMist.withValues(alpha: 0.35),
+            surface.withValues(alpha: 0.98),
+            emeraldMist.withValues(alpha: 0.42),
           ],
-          stops: const [0.0, 0.55, 1.0],
         ),
       );
 }
@@ -360,98 +361,114 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 ),
                 Expanded(
                   child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(22, 6, 22, 36),
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
                     physics: const BouncingScrollPhysics(
                       parent: AlwaysScrollableScrollPhysics(),
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (kIsWeb) ...[
-                          _reveal(_hero, const _WebBestOnPhoneNote(), dy: 6),
-                          const SizedBox(height: 12),
-                        ],
-                        // Living hero: status + summary + primary CTA together.
-                        _reveal(
-                          _hero,
-                          _LivingDashboardHero(
-                            latestReport: latest,
-                            pulse: _ctaPulse,
-                            onScan: _startCapture,
-                            onQuickScan: _startQuickScan,
-                            onOpenReport: latest == null
-                                ? null
-                                : () => _openLatestReport(latest),
-                          ),
-                          dy: 16,
-                        ),
-                        if (_hasDraft) ...[
-                          const SizedBox(height: 12),
-                          _reveal(
-                            _cta,
-                            _ResumeDraftCard(
-                              filledCount: draft.filledCount,
-                              relativeLabel: draft.relativeLabel,
-                              onResume: _resumeDraft,
-                              onDiscard: () async {
-                                await CaptureDraftStore.instance.clear();
-                              },
+                    // Phone-first column; cap width on web/desktop so the hero
+                    // does not stretch into empty template space.
+                    child: Align(
+                      alignment: Alignment.topCenter,
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 520),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (kIsWeb) ...[
+                              _reveal(
+                                _hero,
+                                const _WebBestOnPhoneNote(),
+                                dy: 6,
+                              ),
+                              const SizedBox(height: 12),
+                            ],
+                            // Living hero: status → what matters → primary action.
+                            _reveal(
+                              _hero,
+                              _LivingDashboardHero(
+                                latestReport: latest,
+                                pulse: _ctaPulse,
+                                onScan: _startCapture,
+                                onQuickScan: _startQuickScan,
+                                onOpenReport: latest == null
+                                    ? null
+                                    : () => _openLatestReport(latest),
+                              ),
+                              dy: 16,
                             ),
-                            dy: 10,
-                          ),
-                        ],
-                        if (latest != null) ...[
-                          const SizedBox(height: 14),
-                          _reveal(
-                            _insight,
-                            _AiInsightCard(
-                              report: latest,
-                              onOpen: () => _openLatestReport(latest),
-                            ),
-                            dy: 12,
-                          ),
-                        ] else ...[
-                          const SizedBox(height: 14),
-                          _reveal(
-                            _insight,
-                            _AiEmptyInsightCard(onDemo: _startDemo),
-                            dy: 12,
-                          ),
-                        ],
-                        const SizedBox(height: 18),
-                        _reveal(_trust, const _PremiumTrustRow(), dy: 10),
-                        if (isReturning) ...[
-                          const SizedBox(height: 16),
-                          _reveal(
-                            _trust,
-                            _QuietSecondaryLinks(
-                              reportCount: _reportCount,
-                              onReports: _openReports,
-                              onTips: _openHowItWorksTips,
-                            ),
-                            dy: 8,
-                          ),
-                        ] else ...[
-                          const SizedBox(height: 12),
-                          _reveal(
-                            _trust,
-                            Center(
-                              child: TextButton(
-                                onPressed: _startDemo,
-                                child: Text(
-                                  'Try a sample home first',
-                                  style: GoogleFonts.inter(
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 14,
-                                    color: _HomeLux.emeraldDeep,
+                            if (_hasDraft) ...[
+                              const SizedBox(height: 14),
+                              _reveal(
+                                _cta,
+                                _ResumeDraftCard(
+                                  filledCount: draft.filledCount,
+                                  relativeLabel: draft.relativeLabel,
+                                  onResume: _resumeDraft,
+                                  onDiscard: () async {
+                                    await CaptureDraftStore.instance.clear();
+                                  },
+                                ),
+                                dy: 10,
+                              ),
+                            ],
+                            if (latest != null) ...[
+                              const SizedBox(height: 14),
+                              _reveal(
+                                _insight,
+                                _AiInsightCard(
+                                  report: latest,
+                                  onOpen: () => _openLatestReport(latest),
+                                ),
+                                dy: 12,
+                              ),
+                            ] else ...[
+                              const SizedBox(height: 12),
+                              _reveal(
+                                _insight,
+                                _AiEmptyInsightCard(onDemo: _startDemo),
+                                dy: 12,
+                              ),
+                            ],
+                            if (isReturning) ...[
+                              const SizedBox(height: 20),
+                              _reveal(
+                                _trust,
+                                _QuietSecondaryLinks(
+                                  reportCount: _reportCount,
+                                  onReports: _openReports,
+                                  onTips: _openHowItWorksTips,
+                                ),
+                                dy: 8,
+                              ),
+                            ] else ...[
+                              const SizedBox(height: 18),
+                              _reveal(
+                                _trust,
+                                const _QuietTrustFooter(),
+                                dy: 6,
+                              ),
+                              const SizedBox(height: 4),
+                              _reveal(
+                                _trust,
+                                Center(
+                                  child: TextButton(
+                                    onPressed: _startDemo,
+                                    child: Text(
+                                      'Try a sample home first',
+                                      style: GoogleFonts.inter(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 14,
+                                        color: _HomeLux.emeraldDeep,
+                                      ),
+                                    ),
                                   ),
                                 ),
+                                dy: 6,
                               ),
-                            ),
-                            dy: 6,
-                          ),
-                        ],
-                      ],
+                            ],
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -496,37 +513,16 @@ class _TopBar extends StatelessWidget {
             height: 40,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: _HomeLux.border, width: 0.75),
               boxShadow: _HomeLux.cardShadow(intensity: 0.4),
             ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(11.5),
-              child: Image.asset(
-                'assets/icon/app_icon.png',
-                fit: BoxFit.cover,
-                filterQuality: FilterQuality.high,
-                errorBuilder: (context, error, stackTrace) => Container(
-                  color: _HomeLux.navy,
-                  alignment: Alignment.center,
-                  child: Text(
-                    'F',
-                    style: GoogleFonts.inter(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 17,
-                      letterSpacing: -0.4,
-                    ),
-                  ),
-                ),
-              ),
-            ),
+            child: const BrandMark(size: 40, radius: 12),
           ),
           const SizedBox(width: 12),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'FirstSign',
+                ProductCopy.displayName,
                 style: GoogleFonts.inter(
                   fontSize: 17,
                   fontWeight: FontWeight.w700,
@@ -650,8 +646,8 @@ class _NavIconButton extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Living dashboard hero — status, last scan, AI summary, premium CTA
-// (no score dial / twin on Home)
+// Living dashboard hero — How is my home? → What matters? → What next?
+// No mini twin here (interactive Digital Twin lives on Home Health).
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _LivingDashboardHero extends StatelessWidget {
@@ -678,51 +674,52 @@ class _LivingDashboardHero extends StatelessWidget {
         hasReport ? homeStatusColor(report.score) : _HomeLux.emerald;
     final reassurance =
         hasReport ? homeReassuranceLine(report.report) : 'Not scanned yet';
-    final summary = hasReport
+    final band =
+        hasReport ? homeStatusFromScore(report.score) : '';
+    // Single place for “what matters” — FirstSign AI does not repeat this.
+    final whatMatters = hasReport
         ? latestInsightLine(report.report)
         : 'Capture clear exterior photos to unlock your first calm condition report.';
+
+    // Empty state is tighter so the card feels intentional, not sparse.
+    final gapAfterTitle = hasReport ? 24.0 : 18.0;
+    final gapBeforeRule = hasReport ? 22.0 : 16.0;
+    final gapAfterRule = hasReport ? 18.0 : 14.0;
+    final gapBeforeCta = hasReport ? 24.0 : 18.0;
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(_HomeLux.cardRadius),
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
         child: Container(
           width: double.infinity,
           decoration: _HomeLux.glassCard(),
           child: Stack(
             children: [
-              // Faint blueprint accent inside card
               Positioned.fill(
                 child: IgnorePointer(
                   child: CustomPaint(
                     painter: _BlueprintPainter(
-                      color: _HomeLux.navy.withValues(alpha: 0.035),
+                      color: _HomeLux.navy.withValues(alpha: 0.022),
                       dense: true,
                     ),
                   ),
                 ),
               ),
-              Positioned(
-                top: -30,
-                right: -20,
-                child: Container(
-                  width: 120,
-                  height: 120,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: _HomeLux.emerald.withValues(alpha: 0.06),
-                  ),
-                ),
-              ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+                padding: EdgeInsets.fromLTRB(
+                  22,
+                  hasReport ? 24 : 22,
+                  22,
+                  hasReport ? 20 : 18,
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       greeting,
                       style: GoogleFonts.inter(
-                        fontSize: 13,
+                        fontSize: 12.5,
                         fontWeight: FontWeight.w600,
                         color: _HomeLux.emeraldDeep,
                         letterSpacing: 0.2,
@@ -730,107 +727,118 @@ class _LivingDashboardHero extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      hasReport
-                          ? 'Know before problems grow.'
-                          : 'Know before\nproblems grow.',
+                      hasReport ? 'Your home' : 'Know before problems grow.',
                       style: GoogleFonts.inter(
-                        fontSize: hasReport ? 26 : 30,
+                        fontSize: 30,
                         fontWeight: FontWeight.w700,
                         color: _HomeLux.charcoal,
-                        letterSpacing: -0.85,
-                        height: 1.12,
+                        letterSpacing: -1.0,
+                        height: 1.1,
                       ),
                     ),
-                    const SizedBox(height: 16),
-                    // Reassuring status row
+
+                    SizedBox(height: gapAfterTitle),
+
+                    // ── How is my home? + compact Home Health indicator ──
                     Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
-                        Container(
-                          width: 11,
-                          height: 11,
-                          margin: const EdgeInsets.only(top: 4),
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: statusColor,
-                            boxShadow: [
-                              BoxShadow(
-                                color: statusColor.withValues(alpha: 0.4),
-                                blurRadius: 8,
-                                spreadRadius: 1,
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 12),
                         Expanded(
-                          child: Column(
+                          child: Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                reassurance,
-                                style: GoogleFonts.inter(
-                                  fontSize: 17.5,
-                                  fontWeight: FontWeight.w700,
-                                  color: _HomeLux.charcoal,
-                                  letterSpacing: -0.3,
-                                  height: 1.2,
+                              Container(
+                                width: 9,
+                                height: 9,
+                                margin: const EdgeInsets.only(top: 6),
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: statusColor,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: statusColor.withValues(alpha: 0.35),
+                                      blurRadius: 7,
+                                      spreadRadius: 0.4,
+                                    ),
+                                  ],
                                 ),
                               ),
-                              if (hasReport) ...[
-                                const SizedBox(height: 4),
-                                Text(
-                                  'Last scanned ${report.relativeDateLabel}',
-                                  style: GoogleFonts.inter(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w500,
-                                    color: _HomeLux.muted,
-                                  ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      reassurance,
+                                      style: GoogleFonts.inter(
+                                        fontSize: 17.5,
+                                        fontWeight: FontWeight.w700,
+                                        color: _HomeLux.charcoal,
+                                        letterSpacing: -0.35,
+                                        height: 1.22,
+                                      ),
+                                    ),
+                                    if (hasReport) ...[
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'Scanned ${report.relativeDateLabel}',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 12.5,
+                                          fontWeight: FontWeight.w500,
+                                          color: _HomeLux.muted,
+                                          letterSpacing: -0.05,
+                                        ),
+                                      ),
+                                    ],
+                                  ],
                                 ),
-                              ],
+                              ),
                             ],
                           ),
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    // Concise AI summary
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-                      decoration: BoxDecoration(
-                        color: _HomeLux.surface.withValues(alpha: 0.72),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: _HomeLux.border.withValues(alpha: 0.9),
-                        ),
-                      ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Icon(
-                            Icons.auto_awesome_rounded,
-                            size: 16,
-                            color: _HomeLux.emeraldDeep.withValues(alpha: 0.9),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              summary,
-                              style: GoogleFonts.inter(
-                                fontSize: 14,
-                                height: 1.4,
-                                fontWeight: FontWeight.w500,
-                                color: _HomeLux.charcoalMid,
-                                letterSpacing: -0.1,
-                              ),
-                            ),
+                        if (hasReport) ...[
+                          const SizedBox(width: 12),
+                          _CompactHealthScore(
+                            score: report.score,
+                            band: band,
+                            accent: statusColor,
                           ),
                         ],
+                      ],
+                    ),
+
+                    // Soft section break — intentional rhythm, not empty air.
+                    SizedBox(height: gapBeforeRule),
+                    Container(
+                      height: 1,
+                      width: double.infinity,
+                      color: _HomeLux.border.withValues(alpha: 0.85),
+                    ),
+                    SizedBox(height: gapAfterRule),
+
+                    // ── What matters (once only) ──────────────────────────
+                    Text(
+                      hasReport ? 'WHAT MATTERS' : 'GET STARTED',
+                      style: GoogleFonts.inter(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w700,
+                        color: _HomeLux.muted,
+                        letterSpacing: 1.05,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      whatMatters,
+                      style: GoogleFonts.inter(
+                        fontSize: hasReport ? 16 : 15,
+                        height: 1.4,
+                        fontWeight: FontWeight.w500,
+                        color: _HomeLux.charcoalMid,
+                        letterSpacing: -0.2,
                       ),
                     ),
                     if (hasReport && onOpenReport != null) ...[
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 12),
                       GestureDetector(
                         onTap: onOpenReport,
                         behavior: HitTestBehavior.opaque,
@@ -845,38 +853,40 @@ class _LivingDashboardHero extends StatelessWidget {
                                 color: _HomeLux.emeraldDeep,
                               ),
                             ),
+                            const SizedBox(width: 3),
                             Icon(
                               Icons.arrow_forward_rounded,
-                              size: 16,
+                              size: 15,
                               color: _HomeLux.emeraldDeep.withValues(alpha: 0.9),
                             ),
                           ],
                         ),
                       ),
                     ],
-                    const SizedBox(height: 18),
-                    // Premium Scan CTA with gentle pulse
+
+                    // ── Primary action ────────────────────────────────────
+                    SizedBox(height: gapBeforeCta),
                     AnimatedBuilder(
                       animation: pulse,
                       builder: (context, child) {
                         final t = Curves.easeInOut.transform(pulse.value);
                         return Transform.scale(
-                          scale: 1.0 + t * 0.012,
+                          scale: 1.0 + t * 0.008,
                           child: Container(
                             decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(18),
-                              boxShadow: _HomeLux.ctaGlow(t: t),
+                              borderRadius: BorderRadius.circular(16),
+                              boxShadow: _HomeLux.ctaGlow(t: t * 0.7),
                             ),
                             child: child,
                           ),
                         );
                       },
                       child: SizedBox(
-                        height: 56,
+                        height: 54,
                         width: double.infinity,
                         child: DecoratedBox(
                           decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(18),
+                            borderRadius: BorderRadius.circular(16),
                             gradient: const LinearGradient(
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
@@ -885,34 +895,23 @@ class _LivingDashboardHero extends StatelessWidget {
                                 _HomeLux.emerald,
                                 _HomeLux.emeraldDeep,
                               ],
-                              stops: [0.0, 0.48, 1.0],
+                              stops: [0.0, 0.5, 1.0],
                             ),
                           ),
                           child: Material(
                             color: Colors.transparent,
                             child: InkWell(
                               onTap: onScan,
-                              borderRadius: BorderRadius.circular(18),
+                              borderRadius: BorderRadius.circular(16),
                               child: Center(
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    const Icon(
-                                      Icons.home_outlined,
-                                      color: Colors.white,
-                                      size: 22,
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Text(
-                                      'Scan My Home',
-                                      style: GoogleFonts.inter(
-                                        fontSize: 16.5,
-                                        fontWeight: FontWeight.w700,
-                                        color: Colors.white,
-                                        letterSpacing: -0.2,
-                                      ),
-                                    ),
-                                  ],
+                                child: Text(
+                                  'Scan My Home',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 16.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.white,
+                                    letterSpacing: -0.25,
+                                  ),
                                 ),
                               ),
                             ),
@@ -922,41 +921,50 @@ class _LivingDashboardHero extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     Center(
+                      child: Text(
+                        'Guided multi-angle exterior scan',
+                        style: GoogleFonts.inter(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: _HomeLux.muted,
+                          letterSpacing: -0.05,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Center(
                       child: TextButton(
                         onPressed: onQuickScan,
                         style: TextButton.styleFrom(
                           foregroundColor: _HomeLux.body,
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 8,
+                            horizontal: 10,
+                            vertical: 6,
                           ),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.bolt_rounded,
-                              size: 15,
-                              color: _HomeLux.navySoft.withValues(alpha: 0.7),
-                            ),
-                            const SizedBox(width: 5),
-                            Text(
-                              'Quick Scan',
-                              style: GoogleFonts.inter(
-                                fontSize: 13.5,
-                                fontWeight: FontWeight.w600,
-                                color: _HomeLux.charcoalMid,
+                        child: Text.rich(
+                          TextSpan(
+                            children: [
+                              TextSpan(
+                                text: 'Quick Scan',
+                                style: GoogleFonts.inter(
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: _HomeLux.charcoalMid,
+                                ),
                               ),
-                            ),
-                            Text(
-                              '  · one photo',
-                              style: GoogleFonts.inter(
-                                fontSize: 12.5,
-                                fontWeight: FontWeight.w500,
-                                color: _HomeLux.muted,
+                              TextSpan(
+                                text: '  ·  one photo  ·  first look',
+                                style: GoogleFonts.inter(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w500,
+                                  color: _HomeLux.muted,
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -971,8 +979,67 @@ class _LivingDashboardHero extends StatelessWidget {
   }
 }
 
+/// Compact Home Health score — comprehension only, not a dashboard dial.
+class _CompactHealthScore extends StatelessWidget {
+  const _CompactHealthScore({
+    required this.score,
+    required this.band,
+    required this.accent,
+  });
+
+  final int score;
+  final String band;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minWidth: 64),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        color: _HomeLux.surface.withValues(alpha: 0.88),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: accent.withValues(alpha: 0.2), width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: accent.withValues(alpha: 0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '$score',
+            style: GoogleFonts.inter(
+              fontSize: 22,
+              fontWeight: FontWeight.w700,
+              color: _HomeLux.charcoal,
+              letterSpacing: -0.8,
+              height: 1.0,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            band,
+            style: GoogleFonts.inter(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w600,
+              color: accent,
+              letterSpacing: 0.1,
+              height: 1.1,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
-// FirstSign AI insight card
+// FirstSign AI companion — extra context, never the same “what matters” line
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _AiInsightCard extends StatelessWidget {
@@ -983,7 +1050,8 @@ class _AiInsightCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final line = latestInsightLine(report.report);
+    // Additional framing only — finding title lives once in the hero.
+    final note = firstSignAiCompanionNote(report.report);
 
     return Material(
       color: Colors.transparent,
@@ -996,71 +1064,52 @@ class _AiInsightCard extends StatelessWidget {
             color: _HomeLux.surface,
             borderRadius: BorderRadius.circular(_HomeLux.cardRadius),
             border: Border.all(
-              color: _HomeLux.emerald.withValues(alpha: 0.14),
+              color: _HomeLux.border,
               width: 1,
             ),
-            boxShadow: _HomeLux.softShadow(intensity: 0.85),
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                _HomeLux.surface,
-                _HomeLux.emeraldMist.withValues(alpha: 0.45),
-              ],
-            ),
+            boxShadow: _HomeLux.cardShadow(intensity: 0.7),
           ),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 18, 16, 18),
+            padding: const EdgeInsets.fromLTRB(18, 17, 16, 17),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
                     Container(
-                      width: 36,
-                      height: 36,
+                      width: 32,
+                      height: 32,
                       decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(11),
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            _HomeLux.navy.withValues(alpha: 0.92),
-                            _HomeLux.emeraldDeep,
-                          ],
+                        borderRadius: BorderRadius.circular(9),
+                        color: _HomeLux.navyMist,
+                        border: Border.all(
+                          color: _HomeLux.navy.withValues(alpha: 0.07),
                         ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: _HomeLux.navy.withValues(alpha: 0.18),
-                            blurRadius: 10,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
                       ),
-                      child: const Icon(
+                      child: Icon(
                         Icons.auto_awesome_rounded,
-                        size: 17,
-                        color: Colors.white,
+                        size: 15,
+                        color: _HomeLux.navySoft.withValues(alpha: 0.88),
                       ),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 11),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'FirstSign AI',
+                            ProductCopy.companionLabel,
                             style: GoogleFonts.inter(
-                              fontSize: 14.5,
+                              fontSize: 14,
                               fontWeight: FontWeight.w700,
                               color: _HomeLux.charcoal,
                               letterSpacing: -0.2,
                             ),
                           ),
                           Text(
-                            'A note from your latest scan',
+                            'What to do next',
                             style: GoogleFonts.inter(
-                              fontSize: 12,
+                              fontSize: 11.5,
                               fontWeight: FontWeight.w500,
                               color: _HomeLux.muted,
                             ),
@@ -1070,20 +1119,20 @@ class _AiInsightCard extends StatelessWidget {
                     ),
                     Icon(
                       Icons.chevron_right_rounded,
-                      color: _HomeLux.emerald.withValues(alpha: 0.65),
-                      size: 22,
+                      color: _HomeLux.muted.withValues(alpha: 0.8),
+                      size: 20,
                     ),
                   ],
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 12),
                 Text(
-                  line,
+                  note,
                   style: GoogleFonts.inter(
-                    fontSize: 15.5,
-                    height: 1.42,
-                    fontWeight: FontWeight.w500,
-                    color: _HomeLux.charcoalMid,
-                    letterSpacing: -0.15,
+                    fontSize: 14,
+                    height: 1.48,
+                    fontWeight: FontWeight.w400,
+                    color: _HomeLux.body,
+                    letterSpacing: -0.08,
                   ),
                 ),
               ],
@@ -1110,7 +1159,7 @@ class _AiEmptyInsightCard extends StatelessWidget {
         color: _HomeLux.surface,
         borderRadius: BorderRadius.circular(_HomeLux.cardRadius),
         border: Border.all(color: _HomeLux.border, width: 1),
-        boxShadow: _HomeLux.cardShadow(intensity: 0.75),
+        boxShadow: _HomeLux.cardShadow(intensity: 0.7),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1118,10 +1167,10 @@ class _AiEmptyInsightCard extends StatelessWidget {
           Row(
             children: [
               Container(
-                width: 36,
-                height: 36,
+                width: 34,
+                height: 34,
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(11),
+                  borderRadius: BorderRadius.circular(10),
                   color: _HomeLux.navyMist,
                   border: Border.all(
                     color: _HomeLux.navy.withValues(alpha: 0.08),
@@ -1129,26 +1178,41 @@ class _AiEmptyInsightCard extends StatelessWidget {
                 ),
                 child: Icon(
                   Icons.auto_awesome_rounded,
-                  size: 17,
+                  size: 16,
                   color: _HomeLux.navySoft.withValues(alpha: 0.85),
                 ),
               ),
               const SizedBox(width: 12),
-              Text(
-                'FirstSign AI',
-                style: GoogleFonts.inter(
-                  fontSize: 14.5,
-                  fontWeight: FontWeight.w700,
-                  color: _HomeLux.charcoal,
-                  letterSpacing: -0.2,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      ProductCopy.companionLabel,
+                      style: GoogleFonts.inter(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w700,
+                        color: _HomeLux.charcoal,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    Text(
+                      'After your first scan',
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: _HomeLux.muted,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
           const SizedBox(height: 12),
           Text(
-            'After your first scan, you’ll get a plain-English note on what '
-            'matters most for your exterior — calm, specific, and ready when you are.',
+            'You’ll get calm next-step context for your exterior — '
+            'separate from the main finding, ready when you are.',
             style: GoogleFonts.inter(
               fontSize: 14.5,
               height: 1.45,
@@ -1181,75 +1245,25 @@ class _AiEmptyInsightCard extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Trust row — compact, premium, consumer-facing
+// Quiet first-run trust line — not a product brochure strip
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _PremiumTrustRow extends StatelessWidget {
-  const _PremiumTrustRow();
+class _QuietTrustFooter extends StatelessWidget {
+  const _QuietTrustFooter();
 
   @override
   Widget build(BuildContext context) {
-    const items = [
-      (Icons.auto_awesome_rounded, 'AI-Powered\nAnalysis'),
-      (Icons.picture_as_pdf_outlined, 'Professional\nPDF Reports'),
-      (Icons.lock_open_rounded, 'No Account\nRequired'),
-    ];
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 16),
-      decoration: BoxDecoration(
-        color: _HomeLux.surface.withValues(alpha: 0.9),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: _HomeLux.border, width: 1),
-        boxShadow: _HomeLux.cardShadow(intensity: 0.55),
-      ),
-      child: Row(
-        children: [
-          for (var i = 0; i < items.length; i++) ...[
-            if (i > 0)
-              Container(
-                width: 1,
-                height: 42,
-                margin: const EdgeInsets.symmetric(horizontal: 4),
-                color: _HomeLux.border,
-              ),
-            Expanded(
-              child: Column(
-                children: [
-                  Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: _HomeLux.emeraldMist,
-                      border: Border.all(
-                        color: _HomeLux.emerald.withValues(alpha: 0.12),
-                      ),
-                    ),
-                    child: Icon(
-                      items[i].$1,
-                      size: 16,
-                      color: _HomeLux.emeraldDeep,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    items[i].$2,
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.inter(
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w600,
-                      color: _HomeLux.charcoalMid,
-                      height: 1.25,
-                      letterSpacing: -0.1,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ],
+    return Center(
+      child: Text(
+        'Photo screening  ·  PDF reports  ·  No account needed',
+        textAlign: TextAlign.center,
+        style: GoogleFonts.inter(
+          fontSize: 12,
+          fontWeight: FontWeight.w500,
+          color: _HomeLux.muted,
+          letterSpacing: 0.05,
+          height: 1.35,
+        ),
       ),
     );
   }
@@ -1460,30 +1474,25 @@ class _WebBestOnPhoneNote extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-      decoration: BoxDecoration(
-        color: _HomeLux.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: _HomeLux.border, width: 0.75),
-      ),
+    // Quiet utility line — not a marketing banner.
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(
+          Icon(
             Icons.phone_iphone_rounded,
-            size: 18,
-            color: _HomeLux.emerald,
+            size: 15,
+            color: _HomeLux.muted.withValues(alpha: 0.95),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 8),
           Expanded(
             child: Text(
-              'Best on a phone with the camera. On web, use Demo or upload clear exterior photos.',
+              'Best on a phone with the camera · on web, try Demo or upload clear exterior photos',
               style: GoogleFonts.inter(
-                fontSize: 12.5,
-                height: 1.45,
-                color: _HomeLux.body,
+                fontSize: 12,
+                height: 1.4,
+                color: _HomeLux.muted,
                 fontWeight: FontWeight.w500,
               ),
             ),

@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  Create a Play Store upload keystore + local android/key.properties for Pillar AI.
+  Create a Play Store upload keystore + local android/key.properties for First Sign.
 
 .DESCRIPTION
   - Generates android/upload-keystore.jks (gitignored).
@@ -48,7 +48,7 @@ keytool not found. Install a JDK or Android Studio, then either:
 }
 
 Write-Host ''
-Write-Host 'Pillar AI — create Play Store upload keystore' -ForegroundColor Cyan
+Write-Host 'First Sign — create Play Store upload keystore' -ForegroundColor Cyan
 Write-Host "Android dir: $androidDir"
 Write-Host "Keystore:    $keystorePath"
 Write-Host "Alias:       $alias"
@@ -82,12 +82,12 @@ if ([string]::IsNullOrWhiteSpace($storePassword) -or [string]::IsNullOrWhiteSpac
   throw 'Passwords cannot be empty.'
 }
 
-$cn = Read-Host 'Your name / organization (CN) [Pillar AI]'
-if ([string]::IsNullOrWhiteSpace($cn)) { $cn = 'Pillar AI' }
+$cn = Read-Host 'Your name / organization (CN) [First Sign]'
+if ([string]::IsNullOrWhiteSpace($cn)) { $cn = 'First Sign' }
 $ou = Read-Host 'Organizational unit (OU) [Mobile]'
 if ([string]::IsNullOrWhiteSpace($ou)) { $ou = 'Mobile' }
-$o = Read-Host 'Organization (O) [Pillar AI]'
-if ([string]::IsNullOrWhiteSpace($o)) { $o = 'Pillar AI' }
+$o = Read-Host 'Organization (O) [First Sign]'
+if ([string]::IsNullOrWhiteSpace($o)) { $o = 'First Sign' }
 $l = Read-Host 'City (L) [New York]'
 if ([string]::IsNullOrWhiteSpace($l)) { $l = 'New York' }
 $st = Read-Host 'State (ST) [NY]'

@@ -50,6 +50,7 @@ class OnboardingStore extends ChangeNotifier {
   /// Privacy wipe / full local reset.
   Future<void> resetLocal() async {
     _done = false;
+    _loaded = false; // allow ensureLoaded() to re-read prefs
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_doneKey);
@@ -57,5 +58,12 @@ class OnboardingStore extends ChangeNotifier {
       debugPrint('OnboardingStore reset failed: $e');
     }
     notifyListeners();
+  }
+
+  /// Test helper: drop the sticky loaded flag and re-read SharedPreferences.
+  @visibleForTesting
+  Future<void> debugReload() async {
+    _loaded = false;
+    await ensureLoaded();
   }
 }

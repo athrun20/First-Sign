@@ -3,6 +3,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
+import '../legal/cost_copy.dart';
 import '../legal/privacy_copy.dart';
 import '../models/analysis_models.dart';
 import 'branding_store.dart';
@@ -127,9 +128,9 @@ class ReportPdfService {
   /// Build PDF bytes for [report] using current branding.
   Future<Uint8List> buildPdfBytes(AnalysisReport report) async {
     final pdf = pw.Document(
-      title: 'FirstSign Exterior Screening Report',
-      author: 'FirstSign',
-      creator: 'FirstSign',
+      title: 'First Sign Exterior Screening Report',
+      author: 'First Sign',
+      creator: 'First Sign',
     );
     final date = DateTime.now().toString().split('.').first;
     final companyName = pdfSafe(
@@ -363,7 +364,7 @@ class ReportPdfService {
                         ),
                         pw.SizedBox(width: 8),
                         pw.Text(
-                          'Powered by FirstSign',
+                          'Powered by First Sign',
                           style: pw.TextStyle(
                             fontSize: 10.5,
                             fontWeight: pw.FontWeight.bold,
@@ -446,7 +447,7 @@ class ReportPdfService {
                 ),
               ),
               pw.Text(
-                'Exterior Screening Report  |  FirstSign',
+                'Exterior Screening Report  |  First Sign',
                 style: pw.TextStyle(
                   fontSize: 8.5,
                   color: _PdfLux.muted,
@@ -1089,7 +1090,7 @@ class ReportPdfService {
                   ),
                   pw.SizedBox(height: 4),
                   pw.Text(
-                    '(not a bid)',
+                    pdfSafe(CostCopy.inlineNote),
                     style: pw.TextStyle(
                       fontSize: 7.5,
                       color: _PdfLux.muted,
@@ -1233,7 +1234,7 @@ class ReportPdfService {
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
           pw.Text(
-            'ESTIMATED PLANNING RANGE',
+            CostCopy.shortLabel.toUpperCase(),
             style: pw.TextStyle(
               fontSize: 8,
               fontWeight: pw.FontWeight.bold,
@@ -1243,13 +1244,23 @@ class ReportPdfService {
           ),
           pw.SizedBox(height: 8),
           pw.Text(
-            pdfSafe(report.estimatedRepairRange),
+            pdfSafe(CostCopy.compact(report.estimatedRepairRange)),
             style: pw.TextStyle(
               fontSize: 16,
               fontWeight: pw.FontWeight.bold,
               color: _PdfLux.charcoal,
               letterSpacing: -0.25,
               height: 1.2,
+            ),
+          ),
+          pw.SizedBox(height: 6),
+          pw.Text(
+            pdfSafe(CostCopy.inlineNote),
+            style: pw.TextStyle(
+              fontSize: 8,
+              color: _PdfLux.muted,
+              fontStyle: pw.FontStyle.italic,
+              height: 1.4,
             ),
           ),
           pw.SizedBox(height: 10),
@@ -1263,7 +1274,7 @@ class ReportPdfService {
           ),
           pw.SizedBox(height: 8),
           pw.Text(
-            pdfSafe(PrivacyCopy.planningRangeNote),
+            pdfSafe(CostCopy.footnote),
             style: pw.TextStyle(
               fontSize: 8,
               color: _PdfLux.muted,
