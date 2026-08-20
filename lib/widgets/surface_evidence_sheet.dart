@@ -126,9 +126,15 @@ abstract final class _Fx {
   static const muted = Color(0xFF94A3B8);
   static const orange = Color(0xFFEA580C);
   static const orangeSoft = Color(0xFFFB923C);
+  /// Muted coral for zone-estimate overlays (not inspection red).
+  static const coral = Color(0xFFE07A4C);
+  static const coralSoft = Color(0xFFF0A07A);
   static const amber = Color(0xFFD97706);
   static const teal = Color(0xFF0F766E);
+  static const tealSoft = Color(0xFF2DD4BF);
   static const cyan = Color(0xFF0891B2);
+  static const attnYellow = Color(0xFFFBBF24);
+  static const attnOrange = Color(0xFFF59E0B);
   static const success = Color(0xFF059669);
   static const danger = Color(0xFFB91C1C);
   static const orangeMist = Color(0xFFFFF7ED);
@@ -274,6 +280,18 @@ class _SurfaceEvidenceSheetState extends State<_SurfaceEvidenceSheet>
 
   bool get _selectedSupportsFinding =>
       _selectedAngle?.supportsFinding ?? true;
+
+  Rect get _displayHighlight {
+    final angle = _selectedAngle;
+    if (angle != null && !angle.supportsFinding) return Rect.zero;
+    return angle?.highlight ?? _highlight;
+  }
+
+  SurfaceAttentionField get _attention => SurfaceAttentionField.resolve(
+    pipelineSamples: issue.attentionSamples,
+    region: _displayHighlight,
+    seed: issue.forensicMaskSeed,
+  );
 
   @override
   void initState() {
@@ -474,57 +492,36 @@ class _SurfaceEvidenceSheetState extends State<_SurfaceEvidenceSheet>
                     highlight: _highlight,
                     maskSeed: issue.forensicMaskSeed,
                     confidence: issue.confidence,
-                    hasLocalized: issue.hasLocalizedHighlight,
+                    attentionSamples: issue.attentionSamples,
                     onStageSized: _noteStageSize,
                     onEvidenceTap: _zoomToEvidence,
+                    onFit: _resetZoom,
+                    onFocus: _zoomToEvidence,
                   ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          _modeCaption(_mode),
-                          style: GoogleFonts.inter(
-                            fontSize: 12.5,
-                            color: _Fx.muted,
-                            fontWeight: FontWeight.w500,
-                            height: 1.35,
-                          ),
-                        ),
-                      ),
-                      TextButton.icon(
-                        onPressed: _resetZoom,
-                        icon: const Icon(Icons.fit_screen_rounded, size: 16),
-                        label: const Text('Fit'),
-                        style: TextButton.styleFrom(
-                          foregroundColor: _Fx.body,
-                          visualDensity: VisualDensity.compact,
-                          textStyle: GoogleFonts.inter(
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                      TextButton.icon(
-                        onPressed: _highlight == Rect.zero
-                            ? null
-                            : _zoomToEvidence,
-                        icon: const Icon(
-                          Icons.center_focus_strong_rounded,
-                          size: 16,
-                        ),
-                        label: const Text('Focus'),
-                        style: TextButton.styleFrom(
-                          foregroundColor: _Fx.orange,
-                          visualDensity: VisualDensity.compact,
-                          textStyle: GoogleFonts.inter(
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
+                  const SizedBox(height: 8),
+                  Text(
+                    _modeCaption(),
+                    style: GoogleFonts.inter(
+                      fontSize: 12.5,
+                      color: _Fx.muted,
+                      fontWeight: FontWeight.w500,
+                      height: 1.35,
+                    ),
                   ),
+                  if (_mode == EvidenceViewMode.confidence &&
+                      !_attention.isEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      'Warmer areas are where the cues below drew more '
+                      'attention. Photo screening only — confirm on-site.',
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        color: _Fx.muted,
+                        fontWeight: FontWeight.w500,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
 
                   // Low visibility CTA
                   if (issue.confidence < 80 || issue.needsCloserPhoto) ...[
@@ -552,6 +549,11 @@ class _SurfaceEvidenceSheetState extends State<_SurfaceEvidenceSheet>
                     issue: issue,
                     expanded: _whyOpen,
                     onToggle: () => setState(() => _whyOpen = !_whyOpen),
+                    attentionLinkNote:
+                        _mode == EvidenceViewMode.confidence &&
+                            !_attention.isEmpty
+                        ? 'These cues sit in the warmer attention areas above.'
+                        : null,
                   ),
 
                   const SizedBox(height: 14),
@@ -592,12 +594,16 @@ class _SurfaceEvidenceSheetState extends State<_SurfaceEvidenceSheet>
     );
   }
 
-  String _modeCaption(EvidenceViewMode m) => switch (m) {
+  String _modeCaption() => switch (_mode) {
     EvidenceViewMode.original => 'Your capture — no AI markup.',
-    EvidenceViewMode.overlay =>
-      'Estimated damage region from photo cues (not a surveyed outline).',
-    EvidenceViewMode.confidence =>
-      'Where the model focused attention — softer = lower certainty.',
+    EvidenceViewMode.overlay => _displayHighlight == Rect.zero
+        ? 'No zone estimate for this frame.'
+        : 'Estimated damage region from photo cues (not a surveyed outline).',
+    EvidenceViewMode.confidence => _attention.isEmpty
+        ? 'No attention map for this frame.'
+        : _attention.isApproximate
+        ? 'Approximate attention from the evidence region — cooler / softer = lower certainty.'
+        : 'Where the model focused attention — cooler / softer = lower certainty.',
   };
 
   Widget _buildHeader() {
@@ -821,9 +827,11 @@ class _PhotoStage extends StatelessWidget {
     required this.highlight,
     required this.maskSeed,
     required this.confidence,
-    required this.hasLocalized,
+    required this.attentionSamples,
     required this.onStageSized,
     required this.onEvidenceTap,
+    required this.onFit,
+    required this.onFocus,
   });
 
   final List<SurfaceEvidenceAngle> angles;
@@ -837,9 +845,11 @@ class _PhotoStage extends StatelessWidget {
   final Rect highlight;
   final int maskSeed;
   final int confidence;
-  final bool hasLocalized;
+  final List<SurfaceAttentionSample>? attentionSamples;
   final ValueChanged<Size> onStageSized;
   final VoidCallback onEvidenceTap;
+  final VoidCallback onFit;
+  final VoidCallback onFocus;
 
   @override
   Widget build(BuildContext context) {
@@ -849,6 +859,11 @@ class _PhotoStage extends StatelessWidget {
     final hl = (angle?.supportsFinding ?? true)
         ? (angle?.highlight ?? highlight)
         : Rect.zero;
+    final attention = SurfaceAttentionField.resolve(
+      pipelineSamples: attentionSamples,
+      region: hl,
+      seed: maskSeed,
+    );
 
     return Container(
       decoration: BoxDecoration(
@@ -883,7 +898,7 @@ class _PhotoStage extends StatelessWidget {
                             child: AnimatedBuilder(
                               animation: pulse,
                               builder: (_, _) => CustomPaint(
-                                painter: _OrangeMaskPainter(
+                                painter: _ZoneEstimatePainter(
                                   highlight: hl,
                                   pulse: pulse.value,
                                   seed: maskSeed,
@@ -893,28 +908,13 @@ class _PhotoStage extends StatelessWidget {
                             ),
                           ),
                         if (mode == EvidenceViewMode.confidence &&
-                            hl != Rect.zero)
+                            !attention.isEmpty)
                           FadeTransition(
                             opacity: overlayFade,
                             child: CustomPaint(
-                              painter: _ConfidenceMapPainter(
-                                highlight: hl,
+                              painter: _AttentionMapPainter(
+                                field: attention,
                                 confidence: confidence,
-                                seed: maskSeed,
-                              ),
-                            ),
-                          ),
-                        if (hl != Rect.zero &&
-                            mode != EvidenceViewMode.original)
-                          AnimatedBuilder(
-                            animation: pulse,
-                            builder: (_, _) => CustomPaint(
-                              painter: _PulseFocusPainter(
-                                highlight: hl,
-                                pulse: pulse.value,
-                                color: mode == EvidenceViewMode.confidence
-                                    ? _Fx.cyan
-                                    : _Fx.orange,
                               ),
                             ),
                           ),
@@ -954,24 +954,64 @@ class _PhotoStage extends StatelessWidget {
                       },
                     ),
                   ),
+                if (mode == EvidenceViewMode.overlay && hl != Rect.zero)
+                  const Positioned(
+                    left: 12,
+                    top: 12,
+                    child: _Tag(
+                      label: 'Zone estimate',
+                      accent: _Fx.coralSoft,
+                    ),
+                  ),
+                if (mode == EvidenceViewMode.confidence && !attention.isEmpty)
+                  Positioned(
+                    left: 12,
+                    top: 12,
+                    child: _Tag(
+                      label: attention.isApproximate
+                          ? 'Approx. attention'
+                          : 'Attention map',
+                      accent: _Fx.tealSoft,
+                    ),
+                  ),
+                if (mode == EvidenceViewMode.overlay && hl == Rect.zero)
+                  const Positioned(
+                    left: 12,
+                    right: 12,
+                    bottom: 52,
+                    child: _EmptyStageNote(
+                      text: 'No zone estimate for this frame.',
+                    ),
+                  ),
+                if (mode == EvidenceViewMode.confidence && attention.isEmpty)
+                  const Positioned(
+                    left: 12,
+                    right: 12,
+                    bottom: 52,
+                    child: _EmptyStageNote(
+                      text: 'No attention map for this frame.',
+                    ),
+                  ),
                 Positioned(
-                  left: 12,
-                  top: 12,
-                  child: _Tag(
-                    label: switch (mode) {
-                      EvidenceViewMode.original => 'Original',
-                      EvidenceViewMode.overlay =>
-                        hasLocalized ? 'Estimated region' : 'Zone estimate',
-                      EvidenceViewMode.confidence => 'Attention map',
-                    },
+                  right: 12,
+                  bottom: 12,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (mode == EvidenceViewMode.confidence &&
+                          !attention.isEmpty) ...[
+                        const _ConfidenceLegend(),
+                        const SizedBox(height: 8),
+                      ],
+                      _FitFocusBar(
+                        canFocus: hl != Rect.zero,
+                        onFit: onFit,
+                        onFocus: onFocus,
+                      ),
+                    ],
                   ),
                 ),
-                if (mode == EvidenceViewMode.confidence)
-                  const Positioned(
-                    right: 12,
-                    bottom: 12,
-                    child: _ConfidenceLegend(),
-                  ),
               ],
             );
           },
@@ -981,24 +1021,116 @@ class _PhotoStage extends StatelessWidget {
   }
 }
 
+class _EmptyStageNote extends StatelessWidget {
+  const _EmptyStageNote({required this.text});
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.42),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(
+          text,
+          textAlign: TextAlign.center,
+          style: GoogleFonts.inter(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: Colors.white.withValues(alpha: 0.86),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _Tag extends StatelessWidget {
-  const _Tag({required this.label});
+  const _Tag({required this.label, required this.accent});
   final String label;
+  final Color accent;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+      padding: const EdgeInsets.fromLTRB(9, 6, 11, 6),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.52),
         borderRadius: BorderRadius.circular(20),
       ),
-      child: Text(
-        label,
-        style: GoogleFonts.inter(
-          fontSize: 11.5,
-          fontWeight: FontWeight.w600,
-          color: Colors.white,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(color: accent, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 7),
+          Text(
+            label,
+            style: GoogleFonts.inter(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FitFocusBar extends StatelessWidget {
+  const _FitFocusBar({
+    required this.canFocus,
+    required this.onFit,
+    required this.onFocus,
+  });
+
+  final bool canFocus;
+  final VoidCallback onFit;
+  final VoidCallback onFocus;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _StageChip(label: 'Fit', onTap: onFit),
+        const SizedBox(width: 6),
+        _StageChip(label: 'Focus', onTap: canFocus ? onFocus : null),
+      ],
+    );
+  }
+}
+
+class _StageChip extends StatelessWidget {
+  const _StageChip({required this.label, required this.onTap});
+  final String label;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onTap != null;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: enabled ? 0.55 : 0.32),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Text(
+          label,
+          style: GoogleFonts.inter(
+            fontSize: 11.5,
+            fontWeight: FontWeight.w600,
+            color: Colors.white.withValues(alpha: enabled ? 0.92 : 0.45),
+          ),
         ),
       ),
     );
@@ -1036,27 +1168,30 @@ class _ConfidenceLegend extends StatelessWidget {
               borderRadius: BorderRadius.circular(4),
               gradient: const LinearGradient(
                 colors: [
-                  Color(0x0022D3EE),
-                  Color(0xAAFBBF24),
-                  Color(0xEEF97316),
+                  Color(0xCC0F766E),
+                  Color(0xDD2DD4BF),
+                  Color(0xEEFBBF24),
+                  Color(0xFFF59E0B),
                 ],
               ),
             ),
           ),
           const SizedBox(height: 4),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Lower',
-                style: GoogleFonts.inter(fontSize: 9, color: Colors.white60),
-              ),
-              const SizedBox(width: 28),
-              Text(
-                'Higher',
-                style: GoogleFonts.inter(fontSize: 9, color: Colors.white60),
-              ),
-            ],
+          SizedBox(
+            width: 88,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Lower',
+                  style: GoogleFonts.inter(fontSize: 9, color: Colors.white60),
+                ),
+                Text(
+                  'Higher',
+                  style: GoogleFonts.inter(fontSize: 9, color: Colors.white60),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -1064,8 +1199,8 @@ class _ConfidenceLegend extends StatelessWidget {
   }
 }
 
-class _OrangeMaskPainter extends CustomPainter {
-  _OrangeMaskPainter({
+class _ZoneEstimatePainter extends CustomPainter {
+  _ZoneEstimatePainter({
     required this.highlight,
     required this.pulse,
     required this.seed,
@@ -1084,202 +1219,153 @@ class _OrangeMaskPainter extends CustomPainter {
     final bounds = path.getBounds();
     if (bounds.width < 6) return;
 
-    final conf = (confidence / 100).clamp(0.45, 1.0);
+    // 25–35% fill; pulse stays inside that band.
+    final conf = (confidence / 100).clamp(0.0, 1.0);
+    final fillAlpha = 0.25 + 0.08 * conf + pulse * 0.02;
 
     canvas.drawPath(
       path,
       Paint()
-        ..color = _Fx.orange.withValues(alpha: 0.10 + pulse * 0.04)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 14),
+        ..color = _Fx.coral.withValues(alpha: fillAlpha)
+        ..style = PaintingStyle.fill,
     );
     canvas.drawPath(
       path,
       Paint()
-        ..color = _Fx.orangeSoft.withValues(alpha: 0.12 * conf)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8),
+        ..color = _Fx.coralSoft.withValues(alpha: 0.18)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6)
+        ..style = PaintingStyle.fill,
     );
-    canvas.drawPath(
-      path,
-      Paint()
-        ..shader = ui.Gradient.radial(
-          bounds.center,
-          bounds.longestSide * 0.7,
-          [
-            _Fx.orange.withValues(alpha: 0.34 * conf),
-            _Fx.orangeSoft.withValues(alpha: 0.22 * conf),
-            _Fx.orange.withValues(alpha: 0.10 * conf),
-          ],
-          const [0.0, 0.55, 1.0],
-        ),
-    );
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = _Fx.orange.withValues(alpha: 0.35 + pulse * 0.15)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 5 + pulse * 1.2
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4)
-        ..strokeJoin = StrokeJoin.round,
-    );
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = Colors.white.withValues(alpha: 0.75)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.15
-        ..strokeJoin = StrokeJoin.round,
-    );
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = _Fx.orange.withValues(alpha: 0.95)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.4
-        ..strokeJoin = StrokeJoin.round,
-    );
+
+    final border = Paint()
+      ..color = _Fx.coral.withValues(alpha: 0.88)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.8
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    _strokeDashed(canvas, path, border);
   }
 
   @override
-  bool shouldRepaint(covariant _OrangeMaskPainter old) =>
+  bool shouldRepaint(covariant _ZoneEstimatePainter old) =>
       old.highlight != highlight ||
       old.pulse != pulse ||
       old.seed != seed ||
       old.confidence != confidence;
 }
 
-class _ConfidenceMapPainter extends CustomPainter {
-  _ConfidenceMapPainter({
-    required this.highlight,
+class _AttentionMapPainter extends CustomPainter {
+  _AttentionMapPainter({
+    required this.field,
     required this.confidence,
-    required this.seed,
   });
 
-  final Rect highlight;
+  final SurfaceAttentionField field;
   final int confidence;
-  final int seed;
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (highlight == Rect.zero) return;
+    if (field.isEmpty) return;
 
-    final cx = (highlight.left + highlight.width / 2) * size.width;
-    final cy = (highlight.top + highlight.height / 2) * size.height;
-    final rx = highlight.width * size.width * 0.85;
-    final ry = highlight.height * size.height * 0.85;
     final conf = (confidence / 100).clamp(0.4, 1.0);
-
-    canvas.drawRect(
-      Offset.zero & size,
-      Paint()..color = _Fx.ink.withValues(alpha: 0.12),
+    final region = Rect.fromLTWH(
+      field.region.left * size.width,
+      field.region.top * size.height,
+      field.region.width * size.width,
+      field.region.height * size.height,
     );
+    if (region.width < 4 || region.height < 4) return;
 
-    final rng = math.Random(seed);
-    final lobes = 3 + (seed % 2);
-    for (var i = 0; i < lobes; i++) {
-      final ox = (rng.nextDouble() - 0.5) * rx * 0.55;
-      final oy = (rng.nextDouble() - 0.5) * ry * 0.55;
-      final strength = (1.0 - i * 0.18) * conf;
-      final r = math.max(rx, ry) * (0.55 + i * 0.12);
-      canvas.drawCircle(
-        Offset(cx + ox, cy + oy),
-        r,
-        Paint()
-          ..shader = ui.Gradient.radial(
-            Offset(cx + ox, cy + oy),
-            r,
-            [
-              Color.lerp(
-                const Color(0xFFF97316),
-                const Color(0xFFEF4444),
-                strength,
-              )!.withValues(alpha: 0.42 * strength),
-              const Color(0xFFFBBF24).withValues(alpha: 0.22 * strength),
-              const Color(0xFF22D3EE).withValues(alpha: 0.10 * strength),
-              Colors.transparent,
-            ],
-            const [0.0, 0.35, 0.65, 1.0],
-          ),
-      );
-    }
-
-    final coreR = math.min(rx, ry) * 0.42;
-    canvas.drawCircle(
-      Offset(cx, cy),
-      coreR,
-      Paint()
-        ..shader = ui.Gradient.radial(
-          Offset(cx, cy),
-          coreR,
-          [
-            _Fx.orange.withValues(alpha: 0.50 * conf),
-            const Color(0xFFFBBF24).withValues(alpha: 0.18 * conf),
-            Colors.transparent,
-          ],
-          const [0.0, 0.5, 1.0],
+    final peaks = [
+      for (final s in field.samples)
+        (
+          Offset(s.x * size.width, s.y * size.height),
+          s.weight.clamp(0.15, 1.0),
         ),
-    );
+    ];
+    if (peaks.isEmpty) return;
 
-    final path = _organicMask(size, highlight, seed);
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = Colors.white.withValues(alpha: 0.28)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.0,
+    // Stay on the evidence region — do not wash the full frame.
+    final bounds = region.inflate(region.shortestSide * 0.18);
+    final clip = bounds.intersect(Offset.zero & size);
+    final falloff = math.max(region.longestSide * 0.55, 28.0);
+    const cols = 10;
+    const rows = 8;
+    final cellW = clip.width / cols;
+    final cellH = clip.height / rows;
+
+    canvas.save();
+    canvas.clipRect(clip);
+    canvas.saveLayer(
+      clip,
+      Paint()..imageFilter = ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
     );
+    for (var row = 0; row < rows; row++) {
+      for (var col = 0; col < cols; col++) {
+        final p = Offset(
+          clip.left + (col + 0.5) * cellW,
+          clip.top + (row + 0.5) * cellH,
+        );
+        var attn = 0.0;
+        for (final (peak, weight) in peaks) {
+          final d = (p - peak).distance / falloff;
+          attn += weight * math.exp(-d * d * 2.4);
+        }
+        attn = (attn * conf).clamp(0.0, 1.0);
+        if (attn < 0.06) continue;
+        canvas.drawCircle(
+          p,
+          math.max(cellW, cellH) * 0.78,
+          Paint()..color = _saliencyColor(attn),
+        );
+      }
+    }
+    canvas.restore();
+    canvas.restore();
+  }
+
+  Color _saliencyColor(double t) {
+    final Color hue;
+    if (t < 0.32) {
+      hue = Color.lerp(_Fx.teal, _Fx.tealSoft, t / 0.32)!;
+    } else if (t < 0.58) {
+      hue = Color.lerp(_Fx.tealSoft, _Fx.attnYellow, (t - 0.32) / 0.26)!;
+    } else if (t < 0.82) {
+      hue = Color.lerp(_Fx.attnYellow, _Fx.attnOrange, (t - 0.58) / 0.24)!;
+    } else {
+      hue = Color.lerp(_Fx.attnOrange, _Fx.coral, (t - 0.82) / 0.18)!;
+    }
+    return hue.withValues(alpha: 0.12 + t * 0.40);
   }
 
   @override
-  bool shouldRepaint(covariant _ConfidenceMapPainter old) =>
-      old.highlight != highlight ||
-      old.confidence != confidence ||
-      old.seed != seed;
+  bool shouldRepaint(covariant _AttentionMapPainter old) =>
+      old.field.kind != field.kind ||
+      old.field.region != field.region ||
+      old.field.samples.length != field.samples.length ||
+      old.confidence != confidence;
 }
 
-class _PulseFocusPainter extends CustomPainter {
-  _PulseFocusPainter({
-    required this.highlight,
-    required this.pulse,
-    required this.color,
-  });
-
-  final Rect highlight;
-  final double pulse;
-  final Color color;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (highlight == Rect.zero) return;
-    final c = Offset(
-      (highlight.left + highlight.width / 2) * size.width,
-      (highlight.top + highlight.height / 2) * size.height,
-    );
-    final r = 7.0 + pulse * 3.5;
-
-    canvas.drawCircle(
-      c,
-      r + 10,
-      Paint()..color = color.withValues(alpha: 0.10 + pulse * 0.08),
-    );
-    canvas.drawCircle(
-      c,
-      r + 4,
-      Paint()
-        ..color = color.withValues(alpha: 0.18 + pulse * 0.1)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.2,
-    );
-    canvas.drawCircle(
-      c,
-      4.2,
-      Paint()..color = Colors.white.withValues(alpha: 0.95),
-    );
-    canvas.drawCircle(c, 3.0, Paint()..color = color);
+void _strokeDashed(
+  Canvas canvas,
+  Path path,
+  Paint paint, {
+  double dash = 7,
+  double gap = 5,
+}) {
+  for (final metric in path.computeMetrics()) {
+    var d = 0.0;
+    var draw = true;
+    while (d < metric.length) {
+      final len = draw ? dash : gap;
+      final next = math.min(d + len, metric.length);
+      if (draw) {
+        canvas.drawPath(metric.extractPath(d, next), paint);
+      }
+      d = next;
+      draw = !draw;
+    }
   }
-
-  @override
-  bool shouldRepaint(covariant _PulseFocusPainter old) =>
-      old.highlight != highlight || old.pulse != pulse || old.color != color;
 }
 
 Path _organicMask(Size size, Rect highlight, int seed) {
@@ -1365,11 +1451,13 @@ class _ExplainableAiCard extends StatelessWidget {
     required this.issue,
     required this.expanded,
     required this.onToggle,
+    this.attentionLinkNote,
   });
 
   final AnalysisIssue issue;
   final bool expanded;
   final VoidCallback onToggle;
+  final String? attentionLinkNote;
 
   TextStyle get _subhead => GoogleFonts.inter(
     fontSize: 12,
@@ -1440,6 +1528,10 @@ class _ExplainableAiCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Text('Visual evidence', style: _subhead),
+                  if (attentionLinkNote != null) ...[
+                    const SizedBox(height: 6),
+                    Text(attentionLinkNote!, style: _Fx.mutedStyle(size: 12)),
+                  ],
                   const SizedBox(height: 10),
                   Wrap(
                     spacing: 8,
@@ -1857,7 +1949,7 @@ class _TimelineCard extends StatelessWidget {
                               _PhotoFill(photo: currentPhoto!),
                               if (currentHighlight != Rect.zero)
                                 CustomPaint(
-                                  painter: _OrangeMaskPainter(
+                                  painter: _ZoneEstimatePainter(
                                     highlight: currentHighlight,
                                     pulse: 0.4,
                                     seed: 7,

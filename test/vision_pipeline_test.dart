@@ -630,5 +630,65 @@ void main() {
       expect(restored.surfaceHighlight.height, closeTo(0.28, 0.001));
       expect(restored.highlightLeft, closeTo(0.30, 0.001));
     });
+
+    test('Confidence prefers pipeline attention over region fallback', () {
+      const pipeline = [
+        SurfaceAttentionSample(x: 0.40, y: 0.30, weight: 0.9),
+        SurfaceAttentionSample(x: 0.46, y: 0.36, weight: 0.6),
+      ];
+      final withMap = issue(
+        title: 'Missing / Damaged Shingles',
+        location: 'Primary roof plane',
+        severity: 'High',
+        confidence: 88,
+        insight: 'Roof damage',
+        highlightLeft: 0.12,
+        highlightTop: 0.08,
+        highlightWidth: 0.55,
+        highlightHeight: 0.28,
+      ).copyWith(attentionSamples: pipeline);
+
+      final field = withMap.attentionField();
+      expect(field.isPipeline, isTrue);
+      expect(field.isApproximate, isFalse);
+      expect(field.samples, hasLength(2));
+      expect(field.samples.first.x, closeTo(0.40, 0.001));
+
+      final restored = AnalysisIssue.fromJson(withMap.toJson());
+      expect(restored.attentionSamples, isNotNull);
+      expect(restored.attentionField().isPipeline, isTrue);
+    });
+
+    test('Confidence fallback stays inside the evidence region', () {
+      final boxed = issue(
+        title: 'Missing / Damaged Shingles',
+        location: 'Primary roof plane',
+        severity: 'High',
+        confidence: 88,
+        insight: 'Roof damage',
+        highlightLeft: 0.20,
+        highlightTop: 0.10,
+        highlightWidth: 0.30,
+        highlightHeight: 0.20,
+      );
+      final field = boxed.attentionField();
+      expect(field.isApproximate, isTrue);
+      expect(field.isEmpty, isFalse);
+      final r = boxed.surfaceHighlight.inflate(0.02);
+      for (final s in field.samples) {
+        expect(s.x, inInclusiveRange(r.left, r.right));
+        expect(s.y, inInclusiveRange(r.top, r.bottom));
+      }
+
+      final weak = issue(
+        title: 'Siding Condition Review',
+        location: 'Exterior wall',
+        severity: 'Low',
+        confidence: 72,
+        insight: 'Weak note',
+        needsCloserPhoto: true,
+      );
+      expect(weak.attentionField().isEmpty, isTrue);
+    });
   });
 }

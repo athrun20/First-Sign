@@ -6,6 +6,101 @@ import '../legal/cost_copy.dart';
 import '../legal/privacy_copy.dart';
 import 'twin_zone.dart';
 
+/// One normalized attention sample in image space (0–1).
+class SurfaceAttentionSample {
+  const SurfaceAttentionSample({
+    required this.x,
+    required this.y,
+    this.weight = 1,
+  });
+
+  final double x;
+  final double y;
+  final double weight;
+
+  factory SurfaceAttentionSample.fromJson(Map<String, dynamic> json) {
+    return SurfaceAttentionSample(
+      x: (json['x'] as num?)?.toDouble() ?? 0,
+      y: (json['y'] as num?)?.toDouble() ?? 0,
+      weight: (json['weight'] as num?)?.toDouble() ?? 1,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {'x': x, 'y': y, 'weight': weight};
+}
+
+enum SurfaceAttentionKind { none, pipeline, regionFallback }
+
+/// Spatial attention for the Confidence tab.
+///
+/// [pipeline] is a real map from analysis. [regionFallback] is an honest
+/// soft field concentrated on the evidence box — not a surveyed heatmap.
+class SurfaceAttentionField {
+  const SurfaceAttentionField({
+    required this.kind,
+    this.samples = const [],
+    this.region = Rect.zero,
+  });
+
+  static const none = SurfaceAttentionField(kind: SurfaceAttentionKind.none);
+
+  final SurfaceAttentionKind kind;
+  final List<SurfaceAttentionSample> samples;
+  final Rect region;
+
+  bool get isEmpty =>
+      kind == SurfaceAttentionKind.none || samples.isEmpty || region == Rect.zero;
+  bool get isApproximate => kind == SurfaceAttentionKind.regionFallback;
+  bool get isPipeline => kind == SurfaceAttentionKind.pipeline;
+
+  /// Prefer stored pipeline samples; else a region-concentrated fallback.
+  factory SurfaceAttentionField.resolve({
+    List<SurfaceAttentionSample>? pipelineSamples,
+    required Rect region,
+    required int seed,
+  }) {
+    if (region == Rect.zero) return none;
+    if (pipelineSamples != null && pipelineSamples.isNotEmpty) {
+      return SurfaceAttentionField(
+        kind: SurfaceAttentionKind.pipeline,
+        samples: pipelineSamples,
+        region: region,
+      );
+    }
+    return SurfaceAttentionField(
+      kind: SurfaceAttentionKind.regionFallback,
+      samples: fallbackSamples(region, seed),
+      region: region,
+    );
+  }
+
+  /// Soft peaks inside [region] only — never a full-frame invention.
+  static List<SurfaceAttentionSample> fallbackSamples(Rect region, int seed) {
+    final rng = Object.hash(seed, region.left, region.top);
+    var state = rng & 0x7fffffff;
+    double next() {
+      state = (1103515245 * state + 12345) & 0x7fffffff;
+      return state / 0x7fffffff;
+    }
+
+    final n = 4 + (seed.abs() % 3);
+    return [
+      for (var i = 0; i < n; i++)
+        SurfaceAttentionSample(
+          x: (region.left + region.width * (0.22 + next() * 0.56)).clamp(
+            0.0,
+            1.0,
+          ),
+          y: (region.top + region.height * (0.24 + next() * 0.52)).clamp(
+            0.0,
+            1.0,
+          ),
+          weight: (0.52 + next() * 0.48) * (i == 0 ? 1.0 : 0.78),
+        ),
+    ];
+  }
+}
+
 class AnalysisIssue {
   final String title;
   final String location;
@@ -30,6 +125,10 @@ class AnalysisIssue {
   final double? highlightWidth;
   final double? highlightHeight;
 
+  /// Optional pipeline saliency / attention samples (normalized 0–1).
+  /// Null or empty → Confidence tab uses a region-concentrated fallback.
+  final List<SurfaceAttentionSample>? attentionSamples;
+
   const AnalysisIssue({
     required this.title,
     required this.location,
@@ -44,6 +143,7 @@ class AnalysisIssue {
     this.highlightTop,
     this.highlightWidth,
     this.highlightHeight,
+    this.attentionSamples,
   });
 
   /// True when a usable Vision (or refined) box is stored.
@@ -514,7 +614,9 @@ class AnalysisIssue {
     double? highlightTop,
     double? highlightWidth,
     double? highlightHeight,
+    List<SurfaceAttentionSample>? attentionSamples,
     bool clearHighlight = false,
+    bool clearAttention = false,
   }) {
     return AnalysisIssue(
       title: title ?? this.title,
@@ -536,6 +638,18 @@ class AnalysisIssue {
       highlightHeight: clearHighlight
           ? null
           : (highlightHeight ?? this.highlightHeight),
+      attentionSamples: clearAttention
+          ? null
+          : (attentionSamples ?? this.attentionSamples),
+    );
+  }
+
+  /// Attention used by the Confidence tab for [region] (or [surfaceHighlight]).
+  SurfaceAttentionField attentionField({Rect? region}) {
+    return SurfaceAttentionField.resolve(
+      pipelineSamples: attentionSamples,
+      region: region ?? surfaceHighlight,
+      seed: forensicMaskSeed,
     );
   }
 
@@ -1261,6 +1375,7 @@ class AnalysisIssue {
       highlightTop: (json['highlightTop'] as num?)?.toDouble(),
       highlightWidth: (json['highlightWidth'] as num?)?.toDouble(),
       highlightHeight: (json['highlightHeight'] as num?)?.toDouble(),
+      attentionSamples: _attentionFromJson(json['attentionSamples']),
     );
   }
 
@@ -1278,7 +1393,26 @@ class AnalysisIssue {
     if (highlightTop != null) 'highlightTop': highlightTop,
     if (highlightWidth != null) 'highlightWidth': highlightWidth,
     if (highlightHeight != null) 'highlightHeight': highlightHeight,
+    if (attentionSamples != null && attentionSamples!.isNotEmpty)
+      'attentionSamples': [
+        for (final s in attentionSamples!) s.toJson(),
+      ],
   };
+}
+
+List<SurfaceAttentionSample>? _attentionFromJson(Object? raw) {
+  if (raw is! List) return null;
+  final parsed = <SurfaceAttentionSample>[];
+  for (final item in raw) {
+    if (item is Map<String, dynamic>) {
+      parsed.add(SurfaceAttentionSample.fromJson(item));
+    } else if (item is Map) {
+      parsed.add(
+        SurfaceAttentionSample.fromJson(Map<String, dynamic>.from(item)),
+      );
+    }
+  }
+  return parsed.isEmpty ? null : parsed;
 }
 
 class AnalysisReport {
