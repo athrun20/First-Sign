@@ -8,7 +8,10 @@ import 'package:google_fonts/google_fonts.dart';
 import '../legal/product_copy.dart';
 import '../models/saved_report.dart';
 import '../services/capture_draft_store.dart';
+import '../models/home_property_summary.dart';
 import '../services/home_insight.dart';
+import '../services/home_read_adapter.dart';
+import '../services/property_memory_store.dart';
 import '../services/lead_store.dart';
 import '../services/onboarding_store.dart';
 import '../services/report_store.dart';
@@ -123,10 +126,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     ReportStore.instance.addListener(_onStoresChanged);
     LeadStore.instance.addListener(_onStoresChanged);
     CaptureDraftStore.instance.addListener(_onStoresChanged);
+    PropertyMemoryStore.instance.addListener(_onStoresChanged);
     unawaited(ReportStore.instance.ensureLoaded());
     unawaited(LeadStore.instance.ensureLoaded());
     unawaited(CaptureDraftStore.instance.ensureLoaded());
     unawaited(OnboardingStore.instance.ensureLoaded());
+    unawaited(_ensurePropertyMemoryIfEnabled());
 
     _entrance = AnimationController(
       vsync: this,
@@ -182,6 +187,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     await showFirstSignOnboarding(context, markComplete: true);
   }
 
+  Future<void> _ensurePropertyMemoryIfEnabled() async {
+    final enabled = await HomeReadAdapter.refreshFlag();
+    if (!enabled) return;
+    await PropertyMemoryStore.instance.ensureLoaded();
+    if (mounted) setState(() {});
+  }
+
   void _onStoresChanged() {
     if (mounted) setState(() {});
   }
@@ -191,6 +203,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     ReportStore.instance.removeListener(_onStoresChanged);
     LeadStore.instance.removeListener(_onStoresChanged);
     CaptureDraftStore.instance.removeListener(_onStoresChanged);
+    PropertyMemoryStore.instance.removeListener(_onStoresChanged);
     _entrance.dispose();
     _ctaPulse.dispose();
     _ambient.dispose();
@@ -271,7 +284,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    final latest = _latestReport;
+    final summary = HomeReadAdapter.peek();
+    final latest = summary.latestReport ?? _latestReport;
     final draft = CaptureDraftStore.instance;
     final isReturning = latest != null || _reportCount > 0;
 
@@ -386,7 +400,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                             _reveal(
                               _hero,
                               _LivingDashboardHero(
-                                latestReport: latest,
+                                summary: summary,
                                 pulse: _ctaPulse,
                                 onScan: _startCapture,
                                 onQuickScan: _startQuickScan,
@@ -416,7 +430,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                               _reveal(
                                 _insight,
                                 _AiInsightCard(
-                                  report: latest,
+                                  companionNote: summary.companionNote,
                                   onOpen: () => _openLatestReport(latest),
                                 ),
                                 dy: 12,
@@ -652,14 +666,14 @@ class _NavIconButton extends StatelessWidget {
 
 class _LivingDashboardHero extends StatelessWidget {
   const _LivingDashboardHero({
+    required this.summary,
     required this.pulse,
     required this.onScan,
     required this.onQuickScan,
-    this.latestReport,
     this.onOpenReport,
   });
 
-  final SavedReport? latestReport;
+  final HomePropertySummary summary;
   final AnimationController pulse;
   final VoidCallback onScan;
   final VoidCallback onQuickScan;
@@ -667,19 +681,16 @@ class _LivingDashboardHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final report = latestReport;
+    final report = summary.latestReport;
     final hasReport = report != null;
+    final score = summary.score ?? report?.score;
     final greeting = homeGreeting(returning: hasReport);
     final statusColor =
-        hasReport ? homeStatusColor(report.score) : _HomeLux.emerald;
-    final reassurance =
-        hasReport ? homeReassuranceLine(report.report) : 'Not scanned yet';
-    final band =
-        hasReport ? homeStatusFromScore(report.score) : '';
-    // Single place for “what matters” — FirstSign AI does not repeat this.
-    final whatMatters = hasReport
-        ? latestInsightLine(report.report)
-        : 'Capture clear exterior photos to unlock your first calm condition report.';
+        score != null ? homeStatusColor(score) : _HomeLux.emerald;
+    final reassurance = summary.reassuranceLine;
+    final band = score != null ? homeStatusFromScore(score) : '';
+    // Single place for "what matters" - FirstSign AI does not repeat this.
+    final whatMatters = summary.whatMattersLine;
 
     // Empty state is tighter so the card feels intentional, not sparse.
     final gapAfterTitle = hasReport ? 24.0 : 18.0;
@@ -778,10 +789,10 @@ class _LivingDashboardHero extends StatelessWidget {
                                         height: 1.22,
                                       ),
                                     ),
-                                    if (hasReport) ...[
+                                    if (summary.scannedRelativeLabel != null) ...[
                                       const SizedBox(height: 4),
                                       Text(
-                                        'Scanned ${report.relativeDateLabel}',
+                                        'Scanned ${summary.scannedRelativeLabel}',
                                         style: GoogleFonts.inter(
                                           fontSize: 12.5,
                                           fontWeight: FontWeight.w500,
@@ -796,10 +807,10 @@ class _LivingDashboardHero extends StatelessWidget {
                             ],
                           ),
                         ),
-                        if (hasReport) ...[
+                        if (score != null) ...[
                           const SizedBox(width: 12),
                           _CompactHealthScore(
-                            score: report.score,
+                            score: score,
                             band: band,
                             accent: statusColor,
                           ),
@@ -837,7 +848,7 @@ class _LivingDashboardHero extends StatelessWidget {
                         letterSpacing: -0.2,
                       ),
                     ),
-                    if (hasReport && onOpenReport != null) ...[
+                    if (report != null && onOpenReport != null) ...[
                       const SizedBox(height: 12),
                       GestureDetector(
                         onTap: onOpenReport,
@@ -1043,15 +1054,15 @@ class _CompactHealthScore extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _AiInsightCard extends StatelessWidget {
-  const _AiInsightCard({required this.report, required this.onOpen});
+  const _AiInsightCard({required this.companionNote, required this.onOpen});
 
-  final SavedReport report;
+  final String companionNote;
   final VoidCallback onOpen;
 
   @override
   Widget build(BuildContext context) {
-    // Additional framing only — finding title lives once in the hero.
-    final note = firstSignAiCompanionNote(report.report);
+    // Additional framing only - finding title lives once in the hero.
+    final note = companionNote;
 
     return Material(
       color: Colors.transparent,

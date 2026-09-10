@@ -27,7 +27,7 @@ String latestInsightLine(AnalysisReport report) {
     return 'No high-priority issues from the latest scan.';
   }
 
-  final subject = _naturalFindingSubject(top.homeownerTitle);
+  final subject = naturalFindingSubject(top.homeownerTitle);
   if (subject.isEmpty) {
     return report.calmConditionLine;
   }
@@ -36,7 +36,7 @@ String latestInsightLine(AnalysisReport report) {
     return '$subject needs a closer look soon.';
   }
   if (report.mediumCount > 0) {
-    final verb = _looksPluralSubject(subject) ? 'appear' : 'appears';
+    final verb = looksPluralSubject(subject) ? 'appear' : 'appears';
     return '$subject $verb to need attention.';
   }
   return 'Minor note — $subject is worth a look.';
@@ -103,7 +103,7 @@ String homeReassuranceLine(AnalysisReport report) {
 }
 
 /// Strip hedging prefixes so copy can use natural verb agreement.
-String _naturalFindingSubject(String raw) {
+String naturalFindingSubject(String raw) {
   var t = raw.trim();
   if (t.isEmpty) return '';
   if (t.endsWith('.')) t = t.substring(0, t.length - 1).trim();
@@ -126,7 +126,7 @@ String _naturalFindingSubject(String raw) {
 }
 
 /// Rough plural check for homeowner-facing subjects (not full NLP).
-bool _looksPluralSubject(String subject) {
+bool looksPluralSubject(String subject) {
   final w = subject.toLowerCase().trim();
   if (w.isEmpty) return false;
   if (w.contains(' and ')) return true;
