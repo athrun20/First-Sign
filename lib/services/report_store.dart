@@ -170,6 +170,11 @@ class ReportStore extends ChangeNotifier {
     await _deleteFully(id);
     await _persistIds();
     notifyListeners();
+    try {
+      await PropertyMemoryStore.instance.forgetReport(id);
+    } catch (e, st) {
+      debugPrint('PropertyMemory forgetReport failed (ignored): $e\n$st');
+    }
   }
 
   /// Wipe every saved report and its photo blobs (privacy / reset).
@@ -182,6 +187,11 @@ class ReportStore extends ChangeNotifier {
     _reports.clear();
     await _persistIds();
     notifyListeners();
+    try {
+      await PropertyMemoryStore.instance.wipeAll();
+    } catch (e, st) {
+      debugPrint('PropertyMemory wipeAll failed (ignored): $e\n$st');
+    }
   }
 
   Future<void> _dropOrphanedAfterEviction() async {

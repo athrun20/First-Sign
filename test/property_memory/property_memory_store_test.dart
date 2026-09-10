@@ -260,6 +260,191 @@ void main() {
       ),
     );
   });
+
+  test('PR1.5 retake same report id does not create second scan', () async {
+    final store = PropertyMemoryStore.instance;
+    await store.applyFromSavedReport(_guidedReport(id: 'r_retake'));
+    expect(store.bundle!.scans.length, 1);
+    final scanId = store.bundle!.scans.single.id;
+    final obsCount = store.bundle!.observations.length;
+
+    await store.applyFromSavedReport(
+      _guidedReport(
+        id: 'r_retake',
+        issues: [
+          _issue(title: 'Peeling paint on siding', location: 'Front siding'),
+        ],
+      ).copyWithCreatedAt(DateTime.utc(2026, 9, 2, 12)),
+    );
+
+    expect(store.bundle!.scans.length, 1);
+    expect(store.bundle!.scans.single.id, scanId);
+    expect(store.bundle!.scans.single.sourceSavedReportId, 'r_retake');
+    expect(store.bundle!.observations.length, obsCount);
+    expect(store.property?.lifecycleState, PropertyLifecycleState.active);
+  });
+
+  test('PR1.5 baseline → check-in → retake check-in preserves history',
+      () async {
+    final store = PropertyMemoryStore.instance;
+    await store.applyFromSavedReport(_guidedReport(id: 'r_base'));
+    final baselineScanId = store.bundle!.scans.single.id;
+    final baselineObsIds = [for (final o in store.bundle!.observations) o.id];
+    expect(baselineObsIds, isNotEmpty);
+    final baselineEvIds = [
+      for (final e in store.bundle!.evidence)
+        if (e.scanId == baselineScanId) e.id,
+    ];
+
+    await store.applyFromSavedReport(
+      _guidedReport(
+        id: 'r_checkin',
+        issues: [
+          _issue(title: 'Peeling paint on siding', location: 'Front siding'),
+        ],
+      ).copyWithCreatedAt(DateTime.utc(2026, 9, 20)),
+    );
+    expect(store.bundle!.scans.length, 2);
+    final checkInScanId = store.bundle!.scans.last.id;
+    expect(store.bundle!.scans.last.mode, ScanMode.checkIn);
+    // Baseline observations survive check-in rematch (same ids).
+    expect(
+      [for (final o in store.bundle!.observations) o.id],
+      containsAll(baselineObsIds),
+    );
+
+    await store.applyFromSavedReport(
+      _guidedReport(
+        id: 'r_checkin',
+        issues: [
+          _issue(title: 'Peeling paint on siding', location: 'Front siding'),
+        ],
+      ).copyWithCreatedAt(DateTime.utc(2026, 9, 21)),
+    );
+
+    // Still exactly two scans; check-in reuses same scan id/timepoint.
+    expect(store.bundle!.scans.length, 2);
+    expect(store.bundle!.scans.first.id, baselineScanId);
+    expect(store.bundle!.scans.first.sourceSavedReportId, 'r_base');
+    expect(store.bundle!.scans.last.id, checkInScanId);
+    expect(store.bundle!.scans.last.sourceSavedReportId, 'r_checkin');
+    expect(store.bundle!.scans.last.mode, ScanMode.checkIn);
+
+    // Baseline observations preserved.
+    final afterObsIds = [for (final o in store.bundle!.observations) o.id];
+    expect(afterObsIds, containsAll(baselineObsIds));
+
+    // No orphan evidence/events: every row references a live observation
+    // (or, for events, an observation that still exists).
+    final liveObs = afterObsIds.toSet();
+    for (final e in store.bundle!.evidence) {
+      expect(liveObs.contains(e.observationId), isTrue,
+          reason: 'orphan evidence ${e.id}');
+      expect(
+        store.bundle!.scans.any((s) => s.id == e.scanId),
+        isTrue,
+        reason: 'evidence ${e.id} points at missing scan',
+      );
+    }
+    for (final ev in store.bundle!.events) {
+      expect(liveObs.contains(ev.observationId), isTrue,
+          reason: 'orphan event ${ev.id}');
+    }
+    // Baseline evidence bytes still present.
+    for (final id in baselineEvIds) {
+      expect(await store.evidenceBytes(id), isNotNull);
+    }
+  });
+
+  test('PR1.5 new report id after baseline creates second scan', () async {
+    final store = PropertyMemoryStore.instance;
+    await store.applyFromSavedReport(_guidedReport(id: 'r_base'));
+    expect(store.bundle!.scans.length, 1);
+
+    await store.applyFromSavedReport(
+      _guidedReport(
+        id: 'r_checkin',
+        issues: [
+          _issue(title: 'Peeling paint on siding', location: 'Front siding'),
+        ],
+      ).copyWithCreatedAt(DateTime.utc(2026, 9, 20)),
+    );
+
+    expect(store.bundle!.scans.length, 2);
+    expect(store.bundle!.scans.first.sourceSavedReportId, 'r_base');
+    expect(store.bundle!.scans.last.sourceSavedReportId, 'r_checkin');
+    expect(store.bundle!.scans.last.mode, ScanMode.checkIn);
+    expect(store.property?.lastCheckInScanId, store.bundle!.scans.last.id);
+  });
+
+  test('PR1.5 forgetReport removes only that report scan; baseline remains',
+      () async {
+    final store = PropertyMemoryStore.instance;
+    await store.applyFromSavedReport(_guidedReport(id: 'r_base'));
+    final baselineScanId = store.property!.baselineScanId;
+    final baseEvIds = [for (final e in store.bundle!.evidence) e.id];
+
+    await store.applyFromSavedReport(
+      _guidedReport(
+        id: 'r_later',
+        issues: [
+          _issue(title: 'Peeling paint on siding', location: 'Front siding'),
+        ],
+      ).copyWithCreatedAt(DateTime.utc(2026, 9, 20)),
+    );
+    expect(store.bundle!.scans.length, 2);
+    final laterEvIds = [
+      for (final e in store.bundle!.evidence)
+        if (e.scanId == store.bundle!.scans.last.id) e.id,
+    ];
+
+    await store.forgetReport('r_later');
+
+    expect(store.bundle!.scans.length, 1);
+    expect(store.bundle!.scans.single.sourceSavedReportId, 'r_base');
+    expect(store.property!.baselineScanId, baselineScanId);
+    expect(store.property!.lastCheckInScanId, isNull);
+    for (final id in laterEvIds) {
+      expect(await store.evidenceBytes(id), isNull);
+    }
+    // Baseline evidence bytes still present.
+    for (final id in baseEvIds) {
+      expect(await store.evidenceBytes(id), isNotNull);
+    }
+  });
+
+  test('PR1.5 wipeAll clears PM bundle and evidence', () async {
+    final store = PropertyMemoryStore.instance;
+    await store.applyFromSavedReport(_guidedReport(id: 'r_wipe'));
+    final evId = store.bundle!.evidence.single.id;
+    expect(await store.evidenceBytes(evId), isNotNull);
+
+    await store.wipeAll();
+
+    expect(store.bundle, isNull);
+    expect(store.property, isNull);
+    expect(store.hasLoadFailed, isFalse);
+    expect(await store.evidenceBytes(evId), isNull);
+  });
+
+  test('PR1.5 corrupt bundle → hasLoadFailed; apply does not overwrite',
+      () async {
+    final store = PropertyMemoryStore.instance;
+    await store.ensureLoaded();
+    final box = Hive.box<dynamic>(PropertyMemoryStore.boxName);
+    await box.put(PropertyMemoryStore.bundleKey, '{not-valid-json');
+
+    store.debugDetachBox();
+    await store.ensureLoaded();
+
+    expect(store.hasLoadFailed, isTrue);
+    expect(store.bundle, isNull);
+
+    await store.applyFromSavedReport(_guidedReport(id: 'r_corrupt'));
+
+    expect(store.hasLoadFailed, isTrue);
+    expect(store.bundle, isNull);
+  });
 }
 
 extension on SavedReport {

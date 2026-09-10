@@ -22,10 +22,12 @@ class PropertyMemoryStore extends ChangeNotifier {
 
   Box<dynamic>? _box;
   bool _loaded = false;
+  bool _loadFailed = false;
   Future<void>? _loadFuture;
   PmPropertyMemoryBundle? _bundle;
 
   bool get isLoaded => _loaded;
+  bool get hasLoadFailed => _loadFailed;
   PmPropertyMemoryBundle? get bundle => _bundle;
   PmProperty? get property => _bundle?.property;
 
@@ -62,13 +64,35 @@ class PropertyMemoryStore extends ChangeNotifier {
     try {
       await _openBox();
       final raw = _box!.get(bundleKey);
-      if (raw is String && raw.isNotEmpty) {
-        final map = jsonDecode(raw) as Map<String, dynamic>;
-        _bundle = PmPropertyMemoryBundle.fromJson(map);
+      if (raw == null || (raw is String && raw.isEmpty)) {
+        // Missing/empty bundle key → empty OK (not a load failure).
+        _bundle = null;
+        _loadFailed = false;
+        _loaded = true;
+      } else if (raw is String) {
+        try {
+          final map = jsonDecode(raw) as Map<String, dynamic>;
+          _bundle = PmPropertyMemoryBundle.fromJson(map);
+          _loadFailed = false;
+          _loaded = true;
+        } catch (e, st) {
+          debugPrint('PropertyMemoryStore decode/parse failed: $e\n$st');
+          _bundle = null;
+          _loadFailed = true;
+          _loaded = true;
+        }
+      } else {
+        debugPrint(
+          'PropertyMemoryStore unexpected bundle type: ${raw.runtimeType}',
+        );
+        _bundle = null;
+        _loadFailed = true;
+        _loaded = true;
       }
-      _loaded = true;
     } catch (e, st) {
       debugPrint('PropertyMemoryStore load failed: $e\n$st');
+      _bundle = null;
+      _loadFailed = true;
       _loaded = true;
     } finally {
       notifyListeners();
@@ -101,6 +125,8 @@ class PropertyMemoryStore extends ChangeNotifier {
     try {
       if (!await PropertyMemoryFlags.isEnabled) return;
       await ensureLoaded();
+      // Never mint fresh property over corrupt data.
+      if (_loadFailed) return;
       await _applyFromSavedReportInner(saved);
     } catch (e, st) {
       debugPrint('PropertyMemory applyFromSavedReport failed (ignored): $e\n$st');
@@ -123,6 +149,17 @@ class PropertyMemoryStore extends ChangeNotifier {
           updatedAt: now,
         ),
       );
+    }
+
+    // Retake: same SavedReport id → replace that scan/timepoint only.
+    String? reuseScanId;
+    final priorForReport = [
+      for (final s in bundle.scans)
+        if (s.sourceSavedReportId == saved.id) s,
+    ];
+    if (priorForReport.isNotEmpty) {
+      reuseScanId = priorForReport.first.id;
+      bundle = await _stripScanContribution(bundle, reuseScanId);
     }
 
     final active = bundle.property.lifecycleState ==
@@ -166,7 +203,8 @@ class PropertyMemoryStore extends ChangeNotifier {
       }
     }
 
-    final scanId = 'scan_${now.millisecondsSinceEpoch}_${saved.id}';
+    final scanId =
+        reuseScanId ?? 'scan_${now.millisecondsSinceEpoch}_${saved.id}';
     final processing = meets || active
         ? ScanProcessingStatus.complete
         : ScanProcessingStatus.partial;
@@ -194,6 +232,275 @@ class PropertyMemoryStore extends ChangeNotifier {
     _bundle = result.bundle;
     await _persistBundle();
     notifyListeners();
+  }
+
+  /// Remove one scan's contribution (row, evidence bytes, events) and revert
+  /// observations that only referenced that scan as last-seen.
+  ///
+  /// When an observation originated on [scanId] (`firstSeenScanId`), it is
+  /// removed along with **all** remaining evidence/events for that observation
+  /// id (including rows from later scans) so nothing orphans.
+  Future<PmPropertyMemoryBundle> _stripScanContribution(
+    PmPropertyMemoryBundle bundle,
+    String scanId,
+  ) async {
+    final removedObsIds = {
+      for (final obs in bundle.observations)
+        if (obs.firstSeenScanId == scanId) obs.id,
+    };
+
+    // Bytes to delete: evidence on this scan, plus any leftover evidence for
+    // observations that originated on this scan (may live on later scans).
+    final doomedEvidenceIds = {
+      for (final e in bundle.evidence)
+        if (e.scanId == scanId || removedObsIds.contains(e.observationId)) e.id,
+    };
+    await _deleteEvidenceBytes(doomedEvidenceIds);
+
+    final evidence = [
+      for (final e in bundle.evidence)
+        if (e.scanId != scanId && !removedObsIds.contains(e.observationId)) e,
+    ];
+    final events = [
+      for (final e in bundle.events)
+        if (e.scanId != scanId && !removedObsIds.contains(e.observationId)) e,
+    ];
+    final scans = [
+      for (final s in bundle.scans)
+        if (s.id != scanId) s,
+    ];
+
+    final observations = <PmObservation>[];
+    for (final obs in bundle.observations) {
+      if (removedObsIds.contains(obs.id)) {
+        continue;
+      }
+      if (obs.lastSeenScanId != scanId) {
+        observations.add(obs);
+        continue;
+      }
+
+      // Revert lastSeen to latest remaining evidence (or firstSeen).
+      final remEv = [
+        for (final e in evidence)
+          if (e.observationId == obs.id) e,
+      ]..sort((a, b) => a.capturedAt.compareTo(b.capturedAt));
+      final lastSeenScanId =
+          remEv.isNotEmpty ? remEv.last.scanId : obs.firstSeenScanId;
+      final lastSeenAt =
+          remEv.isNotEmpty ? remEv.last.capturedAt : obs.firstSeenAt;
+
+      // Revert status from latest remaining event with toStatus (else keep).
+      final remStatusEv = [
+        for (final e in events)
+          if (e.observationId == obs.id && e.toStatus != null) e,
+      ]..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+      final status =
+          remStatusEv.isNotEmpty ? remStatusEv.last.toStatus! : obs.status;
+
+      if (obs.lastVerifiedScanId == scanId) {
+        observations.add(
+          PmObservation(
+            id: obs.id,
+            propertyId: obs.propertyId,
+            surfaceId: obs.surfaceId,
+            surfaceType: obs.surfaceType,
+            title: obs.title,
+            description: obs.description,
+            category: obs.category,
+            severityBand: obs.severityBand,
+            status: status,
+            confidence: obs.confidence,
+            zoneHint: obs.zoneHint,
+            localizationType: obs.localizationType,
+            twinAnchorId: obs.twinAnchorId,
+            regionNorm: obs.regionNorm,
+            firstSeenScanId: obs.firstSeenScanId,
+            firstSeenAt: obs.firstSeenAt,
+            lastSeenScanId: lastSeenScanId,
+            lastSeenAt: lastSeenAt,
+            lastVerifiedScanId: null,
+            lastVerifiedAt: null,
+            userDismissed: obs.userDismissed,
+            userCorrected: obs.userCorrected,
+            origin: obs.origin,
+            sourceIssueFingerprint: obs.sourceIssueFingerprint,
+            captureSlot: obs.captureSlot,
+          ),
+        );
+      } else {
+        observations.add(
+          obs.copyWith(
+            lastSeenScanId: lastSeenScanId,
+            lastSeenAt: lastSeenAt,
+            status: status,
+          ),
+        );
+      }
+    }
+
+    final property = _propertyAfterRemovingScan(
+      previous: bundle.property,
+      remainingScans: scans,
+      remainingObservations: observations,
+    );
+
+    final surfaces = [
+      for (final s in bundle.surfaces)
+        s.copyWith(
+          openObservationCount: observations
+              .where(
+                (o) =>
+                    o.surfaceId == s.id &&
+                    !o.userDismissed &&
+                    o.status != ObservationStatus.resolved,
+              )
+              .length,
+        ),
+    ];
+
+    return bundle.copyWith(
+      property: property,
+      scans: scans,
+      observations: observations,
+      evidence: evidence,
+      events: events,
+      surfaces: surfaces,
+    );
+  }
+
+  PmProperty _propertyAfterRemovingScan({
+    required PmProperty previous,
+    required List<PmScan> remainingScans,
+    required List<PmObservation> remainingObservations,
+  }) {
+    final scanIds = {for (final s in remainingScans) s.id};
+
+    var baselineScanId = previous.baselineScanId;
+    var baselineEstablishedAt = previous.baselineEstablishedAt;
+    var lifecycle = previous.lifecycleState;
+    var lastCheckInScanId = previous.lastCheckInScanId;
+    var lastCheckInAt = previous.lastCheckInAt;
+
+    final baselineRemoved =
+        baselineScanId != null && !scanIds.contains(baselineScanId);
+    if (baselineRemoved) {
+      final completedBaselines = [
+        for (final s in remainingScans)
+          if (s.mode == ScanMode.baseline &&
+              s.processingStatus == ScanProcessingStatus.complete)
+            s,
+      ]..sort((a, b) => a.capturedAt.compareTo(b.capturedAt));
+      if (completedBaselines.isNotEmpty) {
+        final b = completedBaselines.last;
+        baselineScanId = b.id;
+        baselineEstablishedAt = b.capturedAt;
+        lifecycle = PropertyLifecycleState.active;
+      } else {
+        baselineScanId = null;
+        baselineEstablishedAt = null;
+        lifecycle = remainingScans.isEmpty
+            ? PropertyLifecycleState.draft
+            : PropertyLifecycleState.baselineIncomplete;
+      }
+    }
+
+    final checkInRemoved =
+        lastCheckInScanId != null && !scanIds.contains(lastCheckInScanId);
+    if (checkInRemoved) {
+      final checkIns = [
+        for (final s in remainingScans)
+          if (s.mode == ScanMode.checkIn) s,
+      ]..sort((a, b) => a.capturedAt.compareTo(b.capturedAt));
+      if (checkIns.isNotEmpty) {
+        lastCheckInScanId = checkIns.last.id;
+        lastCheckInAt = checkIns.last.capturedAt;
+      } else {
+        lastCheckInScanId = null;
+        lastCheckInAt = null;
+      }
+    }
+
+    final openCount = remainingObservations
+        .where(
+          (o) =>
+              !o.userDismissed && o.status != ObservationStatus.resolved,
+        )
+        .length;
+
+    // Reconstruct so lastCheckIn* can be cleared to null (copyWith cannot).
+    return PmProperty(
+      id: previous.id,
+      displayName: previous.displayName,
+      addressLine: previous.addressLine,
+      lifecycleState: lifecycle,
+      baselineScanId: baselineScanId,
+      baselineEstablishedAt: baselineEstablishedAt,
+      lastCheckInScanId: lastCheckInScanId,
+      lastCheckInAt: lastCheckInAt,
+      openObservationCount: openCount,
+      prioritySummary: previous.prioritySummary,
+      overallConditionSignal: previous.overallConditionSignal,
+      createdAt: previous.createdAt,
+      updatedAt: DateTime.now(),
+      featureGeneration: previous.featureGeneration,
+    );
+  }
+
+  /// Remove PM scans tied to [reportId] (and their evidence/events/obs contrib).
+  ///
+  /// Runs when the feature flag is on **or** a residual bundle is already
+  /// loaded/present (so delete can clear privacy data with the flag off).
+  Future<void> forgetReport(String reportId) async {
+    try {
+      final enabled = await PropertyMemoryFlags.isEnabled;
+      await ensureLoaded();
+      if (_loadFailed) return;
+      if (!enabled && _bundle == null) return;
+
+      var bundle = _bundle;
+      if (bundle == null) return;
+
+      final doomed = [
+        for (final s in bundle.scans)
+          if (s.sourceSavedReportId == reportId) s.id,
+      ];
+      if (doomed.isEmpty) return;
+
+      for (final scanId in doomed) {
+        bundle = await _stripScanContribution(bundle!, scanId);
+      }
+
+      _bundle = bundle;
+      await _persistBundle();
+      notifyListeners();
+    } catch (e, st) {
+      debugPrint('PropertyMemory forgetReport failed (ignored): $e\n$st');
+    }
+  }
+
+  /// Wipe entire PM bundle + all `pm/ev/*` evidence bytes (privacy reset).
+  ///
+  /// Runs even when the feature flag is off so residual box data is cleared.
+  Future<void> wipeAll() async {
+    try {
+      await _openBox();
+      final keys = _box!.keys
+          .whereType<String>()
+          .where((k) => k == bundleKey || k.startsWith('pm/ev/'))
+          .toList();
+      if (keys.isNotEmpty) await _box!.deleteAll(keys);
+      _bundle = null;
+      _loadFailed = false;
+      _loaded = true;
+      notifyListeners();
+    } catch (e, st) {
+      debugPrint('PropertyMemory wipeAll failed (ignored): $e\n$st');
+      _bundle = null;
+      _loadFailed = false;
+      _loaded = true;
+      notifyListeners();
+    }
   }
 
   Future<void> _copyEvidenceBytes({
@@ -432,6 +739,7 @@ class PropertyMemoryStore extends ChangeNotifier {
         .toList();
     if (keys.isNotEmpty) await _box!.deleteAll(keys);
     _bundle = null;
+    _loadFailed = false;
     _loaded = true;
     notifyListeners();
   }
@@ -441,6 +749,7 @@ class PropertyMemoryStore extends ChangeNotifier {
   void debugDetachBox() {
     _box = null;
     _loaded = false;
+    _loadFailed = false;
     _loadFuture = null;
     _bundle = null;
   }
