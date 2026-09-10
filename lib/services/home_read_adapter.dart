@@ -142,11 +142,22 @@ class HomeReadAdapter {
     return true;
   }
 
+  /// Home "What Matters" candidates: actionable/open only.
+  ///
+  /// Eligible: fresh, monitoring, changed, worsened.
+  /// Excluded: dismissed, resolved, improved, unverified, unableToDetermine
+  /// (unconfirmed states must not be promoted as if still present).
   static List<PmObservation> _openObservations(PmPropertyMemoryBundle? bundle) {
     if (bundle == null) return const [];
+    const eligible = {
+      ObservationStatus.fresh,
+      ObservationStatus.monitoring,
+      ObservationStatus.changed,
+      ObservationStatus.worsened,
+    };
     return [
       for (final o in bundle.observations)
-        if (!o.userDismissed && o.status != ObservationStatus.resolved) o,
+        if (!o.userDismissed && eligible.contains(o.status)) o,
     ];
   }
 

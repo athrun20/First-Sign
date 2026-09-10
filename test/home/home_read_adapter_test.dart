@@ -393,4 +393,79 @@ void main() {
       isNot(contains('healthy')),
     );
   });
+
+  test('8. unableToDetermine is not a primary Home finding', () {
+    final report = _report(
+      score: 70,
+      issues: [_issue(title: 'Peeling paint on siding', severity: 'Medium')],
+    );
+    final bundle = _bundle(
+      signal: OverallConditionSignal.needsAttention,
+      observations: [
+        _obs(
+          id: 'obs_unable',
+          title: 'Possible foundation crack',
+          severity: SeverityBand.urgent,
+          status: ObservationStatus.unableToDetermine,
+          lastSeenAt: DateTime.utc(2026, 9, 5),
+        ),
+        _obs(
+          id: 'obs_monitor',
+          title: 'Peeling paint on siding',
+          severity: SeverityBand.attention,
+          status: ObservationStatus.monitoring,
+          lastSeenAt: DateTime.utc(2026, 9, 1),
+        ),
+      ],
+    );
+    final summary = HomeReadAdapter.compose(
+      flagEnabled: true,
+      latestReport: report,
+      pmLoaded: true,
+      pmLoadFailed: false,
+      bundle: bundle,
+    );
+    expect(summary.fromPropertyMemory, isTrue);
+    expect(summary.openObservationCount, 1);
+    expect(summary.whatMattersLine.toLowerCase(), contains('peeling paint'));
+    expect(summary.whatMattersLine.toLowerCase(), isNot(contains('foundation')));
+  });
+
+  test('9. unverified is not a primary Home finding', () {
+    final report = _report(
+      score: 68,
+      issues: [_issue(title: 'Gutters overflowing', severity: 'Low')],
+    );
+    final bundle = _bundle(
+      signal: OverallConditionSignal.needsAttention,
+      observations: [
+        _obs(
+          id: 'obs_unverified',
+          title: 'Possible roof edge damage',
+          severity: SeverityBand.urgent,
+          status: ObservationStatus.unverified,
+          lastSeenAt: DateTime.utc(2026, 9, 6),
+        ),
+        _obs(
+          id: 'obs_fresh',
+          title: 'Gutters overflowing',
+          severity: SeverityBand.watch,
+          status: ObservationStatus.fresh,
+          lastSeenAt: DateTime.utc(2026, 9, 2),
+        ),
+      ],
+    );
+    final summary = HomeReadAdapter.compose(
+      flagEnabled: true,
+      latestReport: report,
+      pmLoaded: true,
+      pmLoadFailed: false,
+      bundle: bundle,
+    );
+    expect(summary.fromPropertyMemory, isTrue);
+    expect(summary.openObservationCount, 1);
+    expect(summary.whatMattersLine.toLowerCase(), contains('gutters'));
+    expect(summary.whatMattersLine.toLowerCase(), isNot(contains('roof edge')));
+  });
+
 }
