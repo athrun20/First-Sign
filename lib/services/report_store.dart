@@ -6,8 +6,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/analysis_models.dart';
 import '../models/capture_models.dart';
 import '../models/saved_report.dart';
+import '../config/property_memory_flags.dart';
 import 'image_codec_util.dart';
 import 'local_blob_store.dart';
+import 'property_memory_store.dart';
 import 'storage_exception.dart';
 
 /// Local-first homeowner report history.
@@ -152,6 +154,13 @@ class ReportStore extends ChangeNotifier {
     await _persistMeta(saved);
     await _persistIds();
     notifyListeners();
+    try {
+      if (await PropertyMemoryFlags.isEnabled) {
+        await PropertyMemoryStore.instance.applyFromSavedReport(saved);
+      }
+    } catch (e, st) {
+      debugPrint('PropertyMemory dual-write failed (ignored): $e\n$st');
+    }
     return saved;
   }
 
